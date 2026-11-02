@@ -1,6 +1,7 @@
 import Foundation
 import WebKit
 import Combine
+import Security
 
 @MainActor
 final class AlexaAuthManager: ObservableObject {
@@ -15,7 +16,9 @@ final class AlexaAuthManager: ObservableObject {
     }
     @Published var csrfToken: String?
 
-    private static let savedCookiesKey = "alexa_saved_cookies_v1"
+    private static let legacySavedCookiesKey = "alexa_saved_cookies_v1"
+    private static let keychainService = "com.alexaapplemusic.auth"
+    private static let keychainAccount = "alexa_session_cookies_v1"
     private static let regionKey = "alexa_selected_region_v1"
 
     private init() {
@@ -166,17 +169,35 @@ final class AlexaAuthManager: ObservableObject {
             }
             return dict
         }
-        UserDefaults.standard.set(serializable, forKey: Self.savedCookiesKey)
+
+        if let data = try? JSONSerialization.data(withJSONObject: serializable, options: []) {
+            saveKeychainData(data)
+            UserDefaults.standard.removeObject(forKey: Self.legacySavedCookiesKey)
+        }
     }
 
     private func restoreCookiesFromStorage() {
-        guard let saved = UserDefaults.standard.array(forKey: Self.savedCookiesKey) as? [[String: Any]],
-              !saved.isEmpty else {
+        var saved: [[String: Any]]?
+
+        if let data = loadKeychainData(),
+           let decoded = try? JSONSerialization.jsonObject(with: data, options: []) as? [[String: Any]] {
+            saved = decoded
+        } else if let legacySaved = UserDefaults.standard.array(forKey: Self.legacySavedCookiesKey) as? [[String: Any]],
+                  !legacySaved.isEmpty {
+            // Migrate existing plaintext UserDefaults cookies into the Keychain
+            saved = legacySaved
+            if let data = try? JSONSerialization.data(withJSONObject: legacySaved, options: []) {
+                saveKeychainData(data)
+            }
+            UserDefaults.standard.removeObject(forKey: Self.legacySavedCookiesKey)
+        }
+
+        guard let cookieDicts = saved, !cookieDicts.isEmpty else {
             return
         }
 
         var restoredCookies: [HTTPCookie] = []
-        for dict in saved {
+        for dict in cookieDicts {
             var props: [HTTPCookiePropertyKey: Any] = [:]
             for (k, v) in dict {
                 let key = HTTPCookiePropertyKey(rawValue: k)
@@ -203,7 +224,8 @@ final class AlexaAuthManager: ObservableObject {
         }
 
         guard hasValidAuthCookie else {
-            UserDefaults.standard.removeObject(forKey: Self.savedCookiesKey)
+            deleteKeychainData()
+            UserDefaults.standard.removeObject(forKey: Self.legacySavedCookiesKey)
             self.isAuthenticated = false
             return
         }
@@ -216,6 +238,45 @@ final class AlexaAuthManager: ObservableObject {
         }
 
         self.isAuthenticated = true
+    }
+
+    // MARK: - Keychain Helpers
+
+    private func saveKeychainData(_ data: Data) {
+        let query: [String: Any] = [
+            kSecClass as String: kSecClassGenericPassword,
+            kSecAttrService as String: Self.keychainService,
+            kSecAttrAccount as String: Self.keychainAccount
+        ]
+        SecItemDelete(query as CFDictionary)
+
+        var addQuery = query
+        addQuery[kSecValueData as String] = data
+        addQuery[kSecAttrAccessible as String] = kSecAttrAccessibleAfterFirstUnlockThisDeviceOnly
+        SecItemAdd(addQuery as CFDictionary, nil)
+    }
+
+    private func loadKeychainData() -> Data? {
+        let query: [String: Any] = [
+            kSecClass as String: kSecClassGenericPassword,
+            kSecAttrService as String: Self.keychainService,
+            kSecAttrAccount as String: Self.keychainAccount,
+            kSecReturnData as String: true,
+            kSecMatchLimit as String: kSecMatchLimitOne
+        ]
+        var result: AnyObject?
+        let status = SecItemCopyMatching(query as CFDictionary, &result)
+        guard status == errSecSuccess else { return nil }
+        return result as? Data
+    }
+
+    private func deleteKeychainData() {
+        let query: [String: Any] = [
+            kSecClass as String: kSecClassGenericPassword,
+            kSecAttrService as String: Self.keychainService,
+            kSecAttrAccount as String: Self.keychainAccount
+        ]
+        SecItemDelete(query as CFDictionary)
     }
 
     func cookieHeaderString() -> String {
@@ -242,7 +303,8 @@ final class AlexaAuthManager: ObservableObject {
     }
 
     func signOut() {
-        UserDefaults.standard.removeObject(forKey: Self.savedCookiesKey)
+        deleteKeychainData()
+        UserDefaults.standard.removeObject(forKey: Self.legacySavedCookiesKey)
         if let cookies = HTTPCookieStorage.shared.cookies {
             for cookie in cookies {
                 HTTPCookieStorage.shared.deleteCookie(cookie)

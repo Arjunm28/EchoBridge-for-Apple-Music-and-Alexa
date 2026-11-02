@@ -1,6 +1,6 @@
-# Alexa Apple Music Connect 🎵🔊
+# EchoBridge for Apple Music, Alexa & Sonos 🎵🔊
 
-> **Spotify Connect for Apple Music + Amazon Echo & Sonos.**
+> **A Spotify Connect-style speaker picker for Apple Music + Amazon Echo & Sonos.**
 > Browse Apple Music, pick any individual Echo speaker, Sonos speaker, or Multi-Room group, and cast music directly from your iPhone—complete with **Sonos + Echo Multi-Room Sync & Delay Compensation**.
 
 ![Platform](https://img.shields.io/badge/Platform-iOS%2017%2B-pink)
@@ -115,8 +115,8 @@ Instead of trying to force raw AirPlay audio over a local network skill (which b
 ### Build & Run
 1. Clone the repository:
    ```bash
-   git clone https://github.com/Arjunm28/Alexa-Apple-Music-Bridge.git
-   cd Alexa-Apple-Music-Bridge
+   git clone https://github.com/Arjunm28/EchoBridge-for-Apple-Music-and-Alexa.git
+   cd EchoBridge-for-Apple-Music-and-Alexa
    open AlexaAppleMusic.xcodeproj
    ```
 2. In Xcode, select the **AlexaAppleMusic** project -> **Signing & Capabilities**:
@@ -139,6 +139,14 @@ We're actively looking for contributors! Here are the top areas where you can ju
 - [ ] **Dynamic Multi-Room Group Builder**: Create or modify speaker groups on the fly from inside the app.
 
 Check out [CONTRIBUTING.md](CONTRIBUTING.md) to get started!
+
+---
+
+## 🔒 Privacy, Security & Disclaimer
+
+- **On-Device Keychain Storage**: Your Amazon session tokens never leave your device and are stored encrypted in the iOS Keychain (`kSecClassGenericPassword`, `kSecAttrAccessibleAfterFirstUnlockThisDeviceOnly`). There are no analytics, telemetry, or external backend servers.
+- **Unofficial API Notice**: Like Home Assistant's `alexa_media_player` and `alexapy`, this project communicates directly with Amazon's internal Alexa web endpoints for device discovery and Whole-Home Audio control. It is intended for personal/educational use and sideloading.
+- **Non-Affiliation & Trademarks**: This project is an independent open-source utility and is **not** affiliated with, endorsed by, or sponsored by Apple Inc., Amazon.com, Inc., Sonos, Inc., or Spotify AB. *Apple Music*, *AirPlay*, *Amazon Alexa*, *Amazon Echo*, *Sonos*, and *Spotify Connect* are trademarks of their respective owners.
 
 ---
 

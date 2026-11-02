@@ -1,6 +1,6 @@
-# Contributing to Alexa Apple Music Connect
+# Contributing to EchoBridge for Apple Music & Alexa
 
-First off, thank you for considering contributing to **Alexa Apple Music Connect**! 🎉
+First off, thank you for considering contributing to **EchoBridge for Apple Music & Alexa**! 🎉
 Our goal is to make playing Apple Music on Amazon Echo speakers and Multi-Room speaker groups as seamless as Spotify Connect.
 
 ---
