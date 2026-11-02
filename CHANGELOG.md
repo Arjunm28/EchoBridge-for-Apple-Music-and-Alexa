@@ -10,6 +10,11 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 ## [Unreleased]
 
 ### Added
+- **Sonos + Echo Multi-Room Sync & Delay Compensation**:
+  - **Multi-Room Companion Linking (`+` Link)**: Link any Alexa-enabled Sonos speaker (e.g., Sonos Era 100) to automatically play alongside Echo Multi-Room (`WHA`) groups like *Everywhere*.
+  - **Sonos Head-Start Sync Offset (`-2.0s` to `+4.0s`)**: Staggered playback dispatch that triggers Sonos speakers first (`+1.8s` default head-start) to compensate for Sonos Cloud buffering lag before firing the Echo Multi-Room group.
+  - **Hybrid AirPlay 2 + Alexa Dual-Play Bridge**: Simultaneous local AirPlay 2 (for Sonos) + Alexa Multi-Room playback with `-0.25s` / `+0.25s` real-time Fine Beat Nudge buttons.
+  - **Per-Room Multi-Room Volume Sliders**: Independent volume sliders for every Echo and linked Sonos speaker inside the active group.
 - Added live iOS Simulator app screenshots (`docs/screenshots/`) and embedded screenshot gallery in `README.md`.
 - Added prominent **Sign In** card at the top of `SpeakerPickerSheet` when in Demo Mode or signed out so users can connect their real Amazon Alexa account with one tap.
 - Prioritized **Speaker Groups (Multi-Room)** and **Individual Echo & Sonos Speakers** right below the Current Output card in `SpeakerPickerSheet`.

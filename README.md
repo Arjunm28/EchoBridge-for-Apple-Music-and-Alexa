@@ -1,7 +1,7 @@
 # Alexa Apple Music Connect 🎵🔊
 
-> **Spotify Connect for Apple Music + Amazon Echo.**
-> Browse Apple Music, pick any individual Echo speaker or Multi-Room speaker group, and cast music directly from your iPhone—no voice commands required.
+> **Spotify Connect for Apple Music + Amazon Echo & Sonos.**
+> Browse Apple Music, pick any individual Echo speaker, Sonos speaker, or Multi-Room group, and cast music directly from your iPhone—complete with **Sonos + Echo Multi-Room Sync & Delay Compensation**.
 
 ![Platform](https://img.shields.io/badge/Platform-iOS%2017%2B-pink)
 ![Language](https://img.shields.io/badge/Swift-5.10%2B-orange)
@@ -12,9 +12,9 @@
 
 ## 📱 App Screenshots
 
-| Apple Music Browse & Quick Groups | Multi-Room Groups & Per-Speaker Volume | Live Alexa Now Playing & Transport |
-| :---: | :---: | :---: |
-| <img src="docs/screenshots/home_connected.png" width="260" alt="Home Connected View" /> | <img src="docs/screenshots/speakers_tab.png" width="260" alt="Speakers and Multi-Room Groups" /> | <img src="docs/screenshots/now_playing.png" width="260" alt="Live Now Playing View" /> |
+| Apple Music Browse & Quick Groups | Multi-Room Groups & Amazon Sign-In | Sonos Sync & Per-Room Volumes | Live Alexa Now Playing & Transport |
+| :---: | :---: | :---: | :---: |
+| <img src="docs/screenshots/home_connected.png" width="210" alt="Home Connected View" /> | <img src="docs/screenshots/speakers_tab.png" width="210" alt="Speakers and Multi-Room Groups" /> | <img src="docs/screenshots/speakers_sheet.png" width="210" alt="Sonos Sync and Per-Room Volume" /> | <img src="docs/screenshots/now_playing.png" width="210" alt="Live Now Playing View" /> |
 
 ---
 
@@ -22,25 +22,33 @@
 
 If you use **Spotify** and own **Amazon Echo** speakers, life is easy: you open the Spotify app, tap the speaker icon, and every Echo device and Multi-Room speaker group in your home appears right there via **Spotify Connect**.
 
-If you switch to **Apple Music**, you hit a wall:
-1. **Apple Music only speaks AirPlay 2** in its native speaker picker.
-2. **Amazon Echo speakers don't support AirPlay.**
-3. Even though Amazon has an official **Apple Music skill for Alexa**, the only ways to use it are shouting voice commands across the room (*"Alexa, play my Chill Mix playlist on the Downstairs group!"*—and hoping she understands the song title) or digging through the clunky Alexa app media menus.
-4. Worse, if you try to build a custom Alexa Skill using Amazon's `AudioPlayer` directive or an AirPlay bridge, **Amazon blocks custom skills from playing on Multi-Room Music (WHA) speaker groups**.
+If you switch to **Apple Music**—and especially if you have a mix of **Amazon Echo** and **Sonos** speakers (like a **Sonos Era 100**)—you hit two massive walled-garden walls:
 
-### How We're Tackling It
+### Problem 1: Apple Music Has No "Spotify Connect" for Alexa
+1. **Apple Music only speaks AirPlay 2** in its native speaker picker, and **Amazon Echo speakers don't support AirPlay**.
+2. Even though Amazon has an official **Apple Music skill for Alexa**, the only ways to use it are shouting voice commands across the room (*"Alexa, play my Chill Mix playlist on the Downstairs group!"*—and hoping she understands the song title) or digging through the clunky Alexa app menus.
+3. Worse, if you try to build a custom Alexa Skill using Amazon's `AudioPlayer` directive or an AirPlay bridge, **Amazon blocks custom skills from playing on Multi-Room Music (`WHA`) speaker groups**.
 
-Instead of trying to force raw AirPlay audio over a local network bridge (which breaks Multi-Room sync), **Alexa Apple Music Connect** acts as a **native cloud-to-cloud controller** that bridges **Apple's `MusicKit`** with **Amazon's internal Alexa Behavior & Whole-Home Audio APIs** directly on-device:
+### Problem 2: The Sonos + Echo Multi-Room Sync Problem
+If you own both **Amazon Echo** speakers and Alexa-enabled **Sonos** speakers (e.g., **Sonos Era 100**, Beam, Arc, One):
+1. **Walled-Garden Multi-Room Groups**: Echo's Whole-Home Audio (`WHA`) protocol and Sonos's proprietary grouping don't natively merge—leaving your Sonos speaker excluded from your Echo *"Everywhere"* group, or vice versa.
+2. **The ~1.8-Second Sonos Cloud Buffer Lag**: Even when you trigger Apple Music on both an Echo group and a Sonos Alexa speaker, **Sonos routes the stream through the Sonos Cloud buffering pipeline**, causing the Sonos speaker to start **~1.5s to 2.2s behind** your Echo speakers—creating a stadium-echo effect across your house.
+
+---
+
+## 🛠️ How We're Tackling Both Problems
+
+Instead of trying to force raw AirPlay audio over a local network skill (which breaks Multi-Room sync), **Alexa Apple Music Connect** acts as a **smart cloud-to-cloud + hybrid AirPlay 2 controller** directly on your iPhone:
 
 ```
 ┌────────────────────────────────────────────────────────────────────┐
 │                   Alexa Apple Music Connect (iOS)                  │
 │                                                                    │
 │  ┌──────────────────────────┐        ┌──────────────────────────┐  │
-│  │     Apple MusicKit       │        │   SystemMusicPlayer      │  │
-│  │  • Personal Library      │        │  • Detects song playing  │  │
-│  │  • Playlists & Albums    │        │    in iOS Music app for  │  │
-│  │  • Full Catalog Search   │        │    1-tap Alexa Handoff   │  │
+│  │     Apple MusicKit       │        │   Hybrid Sonos Bridge    │  │
+│  │  • Personal Library      │        │  • Companion '+' Linking │  │
+│  │  • Playlists & Albums    │        │  • +1.8s Head-Start Sync │  │
+│  │  • Full Catalog Search   │        │  • AirPlay 2 Beat Nudge  │  │
 │  └────────────┬─────────────┘        └────────────┬─────────────┘  │
 │               └─────────────────┬─────────────────┘                │
 │                                 ▼                                  │
@@ -57,22 +65,23 @@ Instead of trying to force raw AirPlay audio over a local network bridge (which 
 │                    Amazon Alexa Cloud APIs                         │
 │                                                                    │
 │  1. Discovery: GET /api/devices-v2/device                          │
-│     • Individual Echo Speakers (ECHO, KNIGHT, ROOK)                │
+│     • Individual Echo & Sonos AVS Speakers (ECHO, KNIGHT, SONOS)   │
 │     • Multi-Room Speaker Groups (deviceFamily == "WHA")            │
 │                                                                    │
-│  2. Playback:  POST /api/behaviors/preview                         │
-│     • Operation: Alexa.Music.PlaySearchPhrase                      │
-│     • Provider:  APPLE_MUSIC                                       │
+│  2. Staggered Multi-Room & Sonos Dispatch:                         │
+│     • Step A: Trigger linked Sonos speaker FIRST (+1.8s head-start)│
+│     • Step B: Trigger Echo 'Everywhere' WHA group on the exact beat│
 │                                                                    │
 │  3. Control:   POST /api/np/command & GET /api/np/player           │
-│     • Play / Pause / Next / Prev / Shuffle / Volume / Live State   │
+│     • Per-Speaker Room Volumes, Play/Pause/Next/Prev & Live State  │
 └────────────────────────────────────────────────────────────────────┘
 ```
 
-1. **Discover Every Speaker & Multi-Room Group**: Queries `/api/devices-v2/device` to list both individual Echo speakers and `WHA` (Whole Home Audio) Multi-Room speaker groups—complete with the member speakers inside each group.
-2. **Trigger Native Apple Music Streams on Alexa**: Dispatches `Alexa.Music.PlaySearchPhrase` payloads with `musicProviderId: "APPLE_MUSIC"` to `/api/behaviors/preview`. Because this invokes Amazon's first-party Apple Music integration on the cloud side, **lossless/high-quality streams and Multi-Room speaker groups work natively**.
-3. **1-Tap Handoff from the iOS Apple Music App**: Reads `MPMusicPlayerController.systemMusicPlayer.nowPlayingItem` so if you're already listening to a song in the default iPhone Music app, you can hand it off to your Echo speakers with one tap.
-4. **100% Standalone iOS App**: No Raspberry Pi, Node.js bridge, or home server required.
+1. **Discover Every Echo, Sonos AVS Speaker & Multi-Room Group**: Queries `/api/devices-v2/device` to list individual Echo speakers, Alexa-enabled Sonos speakers (`SONOS / AVS`), and `WHA` Multi-Room speaker groups—complete with the member speakers inside each group.
+2. **Sonos Multi-Room Companion Linking (`+` Link)**: Tap `+` next to any Sonos speaker (like Sonos Era 100) to link it as a companion to your Echo Multi-Room groups. Whenever you play a track on *"Everywhere"* or *"Downstairs"*, your linked Sonos speaker automatically plays too.
+3. **Sonos Head-Start Sync Offset (`-2.0s` to `+4.0s`)**: To eliminate the Sonos Cloud buffering lag, the app dispatches the playback command to your linked Sonos speaker **first** (e.g., `+1.8s` head-start), waits for Sonos to buffer, and then fires the Echo Multi-Room group so both ecosystems drop on the same beat.
+4. **Hybrid AirPlay 2 + Alexa Dual-Play Bridge**: Prefer using native iOS AirPlay 2 for your Sonos Era 100 while your Echo speakers play via Alexa Multi-Room? Enable **Dual-Play** and use the **`-0.25s` / `+0.25s` Fine Beat Nudge** buttons to align local AirPlay 2 audio with your Echo group in real time.
+5. **Per-Speaker Multi-Room Volume Sliders**: Adjust the volume of each individual Echo and linked Sonos speaker inside a group independently from a single card.
 
 > *Built in the open and vibe-coded with **Gemini 4 Argon** in Antigravity—turning a daily smart-home frustration into an open-source community project.*
 
