@@ -219,6 +219,104 @@ struct SpeakerPickerSheet: View {
                     }
                 }
 
+                // Prominent Sign-In Card when not authenticated or in Demo Mode
+                if !authManager.isAuthenticated || authManager.isDemoMode {
+                    Section {
+                        HStack(spacing: 12) {
+                            Image(systemName: "person.badge.key.fill")
+                                .font(.title3)
+                                .foregroundStyle(.blue)
+                                .frame(width: 36, height: 36)
+                                .background(Color.blue.opacity(0.15))
+                                .clipShape(Circle())
+
+                            VStack(alignment: .leading, spacing: 2) {
+                                Text(authManager.isDemoMode ? "Demo Speakers Active" : "Connect Amazon Alexa")
+                                    .font(.subheadline.weight(.semibold))
+                                Text("Sign in to load your real Echo speakers & Multi-Room groups")
+                                    .font(.caption2)
+                                    .foregroundStyle(.secondary)
+                            }
+
+                            Spacer()
+
+                            Button {
+                                showLoginSheet = true
+                            } label: {
+                                Text("Sign In")
+                                    .font(.caption.weight(.bold))
+                            }
+                            .buttonStyle(.borderedProminent)
+                            .tint(.blue)
+                        }
+                    }
+                }
+
+                if authManager.isAuthenticated {
+                    // Multi-Room Speaker Groups Section
+                    Section {
+                        if alexaClient.speakerGroups.isEmpty && !alexaClient.isLoadingDevices {
+                            Text("No Multi-Room speaker groups found in your Alexa account.")
+                                .font(.caption)
+                                .foregroundStyle(.secondary)
+                        } else {
+                            ForEach(alexaClient.speakerGroups) { group in
+                                let members = alexaClient.memberNames(for: group)
+                                let linkedNames = coordinator.activeCompanionDevices.map(\.accountName)
+                                let combined = members + linkedNames
+                                let subtitle = combined.isEmpty
+                                    ? "Multi-Room Music Group"
+                                    : combined.joined(separator: " • ")
+                                speakerRow(
+                                    target: .alexaDevice(group),
+                                    title: group.accountName,
+                                    subtitle: subtitle,
+                                    icon: "hifispeaker.2.fill",
+                                    isOnline: group.online
+                                )
+                            }
+                        }
+                    } header: {
+                        HStack {
+                            Label("Speaker Groups (Multi-Room)", systemImage: "speaker.wave.2.bubble.left.fill")
+                            Spacer()
+                            if authManager.isDemoMode {
+                                Text("DEMO")
+                                    .font(.caption2.weight(.bold))
+                                    .padding(.horizontal, 6)
+                                    .padding(.vertical, 2)
+                                    .background(Color.orange.opacity(0.2))
+                                    .foregroundStyle(.orange)
+                                    .clipShape(Capsule())
+                            }
+                        }
+                    }
+
+                    // Individual Echo & Sonos Speakers Section (with Multi-Room Companion Link button!)
+                    Section {
+                        if alexaClient.isLoadingDevices {
+                            HStack(spacing: 12) {
+                                ProgressView()
+                                Text("Discovering Echo & Sonos speakers...")
+                                    .font(.subheadline)
+                                    .foregroundStyle(.secondary)
+                            }
+                        } else if alexaClient.individualSpeakers.isEmpty {
+                            Text("No Echo or Sonos speakers found. Pull to refresh or verify your Amazon region.")
+                                .font(.caption)
+                                .foregroundStyle(.secondary)
+                        } else {
+                            ForEach(alexaClient.individualSpeakers) { speaker in
+                                individualSpeakerWithLinkRow(speaker)
+                            }
+                        }
+                    } header: {
+                        Text("Individual Echo & Sonos Speakers")
+                    } footer: {
+                        Text("Tap '+' on any speaker (such as Sonos Era 100) to link it as a Multi-Room Companion so it automatically starts playing whenever you play on 'Everywhere'.")
+                    }
+                }
+
                 // Sonos Era 100 & Hybrid Multi-Room Sync Calibration Section
                 Section {
                     // 1. Sonos Head-Start / Latency Compensation Slider
@@ -398,69 +496,6 @@ struct SpeakerPickerSheet: View {
                         .padding(.vertical, 6)
                     }
                 } else {
-                    // Multi-Room Speaker Groups Section
-                    Section {
-                        if alexaClient.speakerGroups.isEmpty && !alexaClient.isLoadingDevices {
-                            Text("No Multi-Room speaker groups found in your Alexa account.")
-                                .font(.caption)
-                                .foregroundStyle(.secondary)
-                        } else {
-                            ForEach(alexaClient.speakerGroups) { group in
-                                let members = alexaClient.memberNames(for: group)
-                                let linkedNames = coordinator.activeCompanionDevices.map(\.accountName)
-                                let combined = members + linkedNames
-                                let subtitle = combined.isEmpty
-                                    ? "Multi-Room Music Group"
-                                    : combined.joined(separator: " • ")
-                                speakerRow(
-                                    target: .alexaDevice(group),
-                                    title: group.accountName,
-                                    subtitle: subtitle,
-                                    icon: "hifispeaker.2.fill",
-                                    isOnline: group.online
-                                )
-                            }
-                        }
-                    } header: {
-                        HStack {
-                            Label("Speaker Groups (Multi-Room)", systemImage: "speaker.wave.2.bubble.left.fill")
-                            Spacer()
-                            if authManager.isDemoMode {
-                                Text("DEMO")
-                                    .font(.caption2.weight(.bold))
-                                    .padding(.horizontal, 6)
-                                    .padding(.vertical, 2)
-                                    .background(Color.orange.opacity(0.2))
-                                    .foregroundStyle(.orange)
-                                    .clipShape(Capsule())
-                            }
-                        }
-                    }
-
-                    // Individual Echo & Sonos Speakers Section (with Multi-Room Companion Link button!)
-                    Section {
-                        if alexaClient.isLoadingDevices {
-                            HStack(spacing: 12) {
-                                ProgressView()
-                                Text("Discovering Echo & Sonos speakers...")
-                                    .font(.subheadline)
-                                    .foregroundStyle(.secondary)
-                            }
-                        } else if alexaClient.individualSpeakers.isEmpty {
-                            Text("No Echo or Sonos speakers found. Pull to refresh or verify your Amazon region.")
-                                .font(.caption)
-                                .foregroundStyle(.secondary)
-                        } else {
-                            ForEach(alexaClient.individualSpeakers) { speaker in
-                                individualSpeakerWithLinkRow(speaker)
-                            }
-                        }
-                    } header: {
-                        Text("Individual Echo & Sonos Speakers")
-                    } footer: {
-                        Text("Tap '+' on any speaker (such as Sonos Era 100) to link it as a Multi-Room Companion so it automatically starts playing whenever you play on 'Everywhere'.")
-                    }
-
                     // Account Management Footer
                     Section {
                         if authManager.isDemoMode {

@@ -10,6 +10,14 @@
 
 ---
 
+## 📱 App Screenshots
+
+| Apple Music Browse & Quick Groups | Multi-Room Groups & Per-Speaker Volume | Live Alexa Now Playing & Transport |
+| :---: | :---: | :---: |
+| <img src="docs/screenshots/home_connected.png" width="260" alt="Home Connected View" /> | <img src="docs/screenshots/speakers_tab.png" width="260" alt="Speakers and Multi-Room Groups" /> | <img src="docs/screenshots/now_playing.png" width="260" alt="Live Now Playing View" /> |
+
+---
+
 ## 💡 The Story: Why Does This Project Exist?
 
 If you use **Spotify** and own **Amazon Echo** speakers, life is easy: you open the Spotify app, tap the speaker icon, and every Echo device and Multi-Room speaker group in your home appears right there via **Spotify Connect**.

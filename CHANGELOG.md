@@ -9,6 +9,11 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Added
+- Added live iOS Simulator app screenshots (`docs/screenshots/`) and embedded screenshot gallery in `README.md`.
+- Added prominent **Sign In** card at the top of `SpeakerPickerSheet` when in Demo Mode or signed out so users can connect their real Amazon Alexa account with one tap.
+- Prioritized **Speaker Groups (Multi-Room)** and **Individual Echo & Sonos Speakers** right below the Current Output card in `SpeakerPickerSheet`.
+
 ### Planned
 - iOS Share Sheet Extension (`Share -> Play on Alexa` from the native Apple Music app).
 - iOS Lock Screen & Dynamic Island integration (`MPNowPlayingInfoCenter` & `MPRemoteCommandCenter`).

@@ -54,7 +54,43 @@ struct ContentView: View {
             NowPlayingDetailView()
         }
         .task {
-            if authManager.isAuthenticated {
+            let env = ProcessInfo.processInfo.environment["SCREENSHOT_MODE"]
+            if env == "SPEAKERS" {
+                authManager.enableDemoMode()
+                await alexaClient.fetchDevices()
+                if let group = alexaClient.speakerGroups.first {
+                    await coordinator.selectTarget(.alexaDevice(group))
+                }
+                showSpeakerPickerSheet = true
+            } else if env == "SPEAKERS_TAB" {
+                authManager.enableDemoMode()
+                await alexaClient.fetchDevices()
+                if let group = alexaClient.speakerGroups.first {
+                    await coordinator.selectTarget(.alexaDevice(group))
+                }
+                selectedTab = 1
+            } else if env == "NOW_PLAYING" {
+                authManager.enableDemoMode()
+                await alexaClient.fetchDevices()
+                if let speaker = alexaClient.individualSpeakers.first {
+                    await coordinator.selectTarget(.alexaDevice(speaker))
+                }
+                try? await Task.sleep(nanoseconds: 1_200_000_000)
+                if let firstSong = AppleMusicManager.shared.recentSongs.first {
+                    await coordinator.play(firstSong)
+                }
+                showNowPlayingDetail = true
+            } else if env == "HOME_CONNECTED" {
+                authManager.enableDemoMode()
+                await alexaClient.fetchDevices()
+                if let group = alexaClient.speakerGroups.first {
+                    await coordinator.selectTarget(.alexaDevice(group))
+                }
+                try? await Task.sleep(nanoseconds: 1_200_000_000)
+                if let firstSong = AppleMusicManager.shared.recentSongs.first {
+                    await coordinator.play(firstSong)
+                }
+            } else if authManager.isAuthenticated {
                 await alexaClient.fetchDevices()
             }
         }
