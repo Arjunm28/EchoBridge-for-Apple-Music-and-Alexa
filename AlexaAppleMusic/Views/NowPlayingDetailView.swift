@@ -373,6 +373,22 @@ struct NowPlayingDetailView: View {
                             .foregroundStyle(.secondary)
                             .lineLimit(1)
                     }
+
+                    if let provider = report.providerName, !provider.isEmpty {
+                        let isApple = provider.localizedCaseInsensitiveContains("apple")
+                        let isAmazon = provider.localizedCaseInsensitiveContains("amazon")
+                        HStack(spacing: 3) {
+                            Image(systemName: isApple ? "applelogo" : (isAmazon ? "cart.fill" : "music.note"))
+                                .font(.system(size: 8))
+                            Text(isApple ? "Apple Music" : (isAmazon ? "Amazon Music" : provider))
+                                .font(.system(size: 9, weight: .semibold))
+                        }
+                        .padding(.horizontal, 5)
+                        .padding(.vertical, 2)
+                        .background(isApple ? Color.pink.opacity(0.15) : (isAmazon ? Color.blue.opacity(0.15) : Color.secondary.opacity(0.15)))
+                        .foregroundStyle(isApple ? Color.pink : (isAmazon ? Color.blue : Color.secondary))
+                        .clipShape(Capsule())
+                    }
                 } else {
                     Text("Connected to \(coordinator.selectedTarget.displayName)")
                         .font(.caption2)

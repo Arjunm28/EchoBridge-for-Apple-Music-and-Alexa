@@ -338,15 +338,43 @@ struct SpeakerPickerSheet: View {
 
                         // B. Alexa Catalog Resolver Preference
                         VStack(alignment: .leading, spacing: 6) {
-                            Text("Music Catalog Resolver")
-                                .font(.caption.weight(.semibold))
-                                .foregroundStyle(.secondary)
+                            HStack {
+                                Text("Music Catalog Resolver")
+                                    .font(.caption.weight(.semibold))
+                                    .foregroundStyle(.secondary)
+                                Spacer()
+                                if coordinator.providerPreference == .appleMusic {
+                                    Label("Apple Music Strict", systemImage: "checkmark.seal.fill")
+                                        .font(.caption2.weight(.medium))
+                                        .foregroundStyle(.pink)
+                                }
+                            }
+
                             Picker("Alexa Catalog Resolver", selection: $coordinator.providerPreference) {
                                 ForEach(AlexaMusicProviderPreference.allCases) { pref in
                                     Text(pref.rawValue).tag(pref)
                                 }
                             }
                             .pickerStyle(.segmented)
+
+                            Text(coordinator.providerPreference.detailDescription)
+                                .font(.caption2)
+                                .foregroundStyle(.secondary)
+                                .padding(.top, 1)
+
+                            if coordinator.providerPreference == .appleMusic {
+                                HStack(spacing: 6) {
+                                    Image(systemName: "info.circle")
+                                        .font(.caption2)
+                                        .foregroundStyle(.pink)
+                                    Text("Tip: In Alexa app, set Apple Music under Settings → Music & Podcasts → Default Services.")
+                                        .font(.caption2)
+                                        .foregroundStyle(.secondary)
+                                }
+                                .padding(8)
+                                .background(Color.pink.opacity(0.08))
+                                .cornerRadius(8)
+                            }
                         }
                         .padding(.vertical, 2)
 

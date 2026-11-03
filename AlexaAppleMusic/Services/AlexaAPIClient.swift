@@ -1,31 +1,52 @@
 import Foundation
 
 enum AlexaMusicProviderPreference: String, CaseIterable, Identifiable {
-    case auto = "Smart Auto"
     case appleMusic = "Apple Music"
+    case auto = "Smart Auto"
     case amazonMusic = "Amazon Music"
 
     var id: String { rawValue }
 
     var providerIds: [String] {
         switch self {
-        case .auto:
-            return ["APPLE_MUSIC", "AMAZON_MUSIC"]
         case .appleMusic:
             return ["APPLE_MUSIC"]
+        case .auto:
+            return ["APPLE_MUSIC", "AMAZON_MUSIC"]
         case .amazonMusic:
-            return ["AMAZON_MUSIC", "APPLE_MUSIC"]
+            return ["AMAZON_MUSIC"]
         }
     }
 
-    var voiceSuffix: String {
+    var defaultVoiceSuffix: String {
         switch self {
-        case .auto:
-            return "on Apple Music"
-        case .appleMusic:
-            return "on Apple Music"
+        case .appleMusic, .auto:
+            return "from Apple Music"
         case .amazonMusic:
             return "on Amazon Music"
+        }
+    }
+
+    func naturalVoiceSuffix(for phrase: String) -> String {
+        switch self {
+        case .appleMusic, .auto:
+            if phrase.lowercased().contains(" from ") {
+                return "on Apple Music"
+            }
+            return "from Apple Music"
+        case .amazonMusic:
+            return "on Amazon Music"
+        }
+    }
+
+    var detailDescription: String {
+        switch self {
+        case .appleMusic:
+            return "Strict Apple Music playback via linked Apple Music skill. Never falls back to Amazon Music."
+        case .auto:
+            return "Prioritizes Apple Music; uses Amazon Music only if Apple Music is unreachable."
+        case .amazonMusic:
+            return "Streams directly using your Amazon Music library or subscription."
         }
     }
 }
@@ -204,7 +225,7 @@ final class AlexaAPIClient: ObservableObject {
     func playMediaItem(
         _ item: PlayableMediaItem,
         customPhraseOverride: String? = nil,
-        providerPreference: AlexaMusicProviderPreference = .auto,
+        providerPreference: AlexaMusicProviderPreference = .appleMusic,
         on targetDevice: AlexaDevice
     ) async throws {
         if let override = customPhraseOverride, !override.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty {
@@ -296,7 +317,7 @@ final class AlexaAPIClient: ObservableObject {
     func playAppleMusic(
         searchPhrase: String,
         fallbackPhrases: [String] = [],
-        providerPreference: AlexaMusicProviderPreference = .auto,
+        providerPreference: AlexaMusicProviderPreference = .appleMusic,
         on targetDevice: AlexaDevice
     ) async throws {
         if authManager.isDemoMode {
@@ -322,69 +343,151 @@ final class AlexaAPIClient: ObservableObject {
         var lastStatus: Int = 0
         var lastBodySnippet: String = ""
 
-        // 1. Primary path: Try preferred music provider(s) via `Alexa.Music.PlaySearchPhrase`
-        for providerId in providerPreference.providerIds {
-            let primaryMusicPayload = await validateOrBuildMusicPayload(
+        // =========================================================================
+        // PHASE 1: Direct Apple Music Execution (for .appleMusic and .auto)
+        // =========================================================================
+        if providerPreference != .amazonMusic {
+            let appleSuffix = providerPreference.naturalVoiceSuffix(for: primaryPhrase)
+
+            // Strategy 1: Alexa.TextCommand ("play <phrase> from Apple Music [on GroupName]")
+            // Routed through amzn1.ask.1p.tellalexa — forces Alexa's cloud to query the official Apple Music skill
+            // rather than defaulting to Amazon Music, and renders Apple Music branding on Echo Show.
+            let appleCommandText: String
+            if targetDevice.isSpeakerGroup {
+                appleCommandText = "play \(primaryPhrase) \(appleSuffix) on \(targetDevice.accountName)"
+            } else {
+                appleCommandText = "play \(primaryPhrase) \(appleSuffix)"
+            }
+
+            let appleTextPayload: [String: Any] = [
+                "deviceType": executionDevice.deviceType,
+                "deviceSerialNumber": executionDevice.serialNumber,
+                "customerId": customerId,
+                "locale": locale,
+                "text": appleCommandText
+            ]
+
+            let textCmdRes = try await executeBehaviorNode(
+                nodeType: "Alexa.TextCommand",
+                skillId: "amzn1.ask.1p.tellalexa",
+                operationPayload: appleTextPayload,
+                encodePayloadAsString: false
+            )
+            if textCmdRes.succeeded {
+                return
+            }
+            lastStatus = textCmdRes.statusCode
+            lastBodySnippet = textCmdRes.responseSnippet
+
+            // Strategy 2: Alexa.Music.PlaySearchPhrase with "APPLE_MUSIC"
+            let appleMusicPayload = await validateOrBuildMusicPayload(
                 phrase: effectivePrimaryPhrase,
-                providerId: providerId,
+                providerId: "APPLE_MUSIC",
                 device: executionDevice,
                 customerId: customerId,
                 locale: locale
             )
 
-            let primaryResult = try await executeBehaviorNode(
+            // Try standard routine String encoding
+            if let strRes = try? await executeBehaviorNode(
                 nodeType: "Alexa.Music.PlaySearchPhrase",
-                operationPayload: primaryMusicPayload,
-                encodePayloadAsString: false
-            )
-            if primaryResult.succeeded {
+                operationPayload: appleMusicPayload,
+                encodePayloadAsString: true
+            ), strRes.succeeded {
                 return
             }
-            lastStatus = primaryResult.statusCode
-            lastBodySnippet = primaryResult.responseSnippet
+
+            // Try JSON object encoding
+            if let objRes = try? await executeBehaviorNode(
+                nodeType: "Alexa.Music.PlaySearchPhrase",
+                operationPayload: appleMusicPayload,
+                encodePayloadAsString: false
+            ), objRes.succeeded {
+                return
+            }
+
+            // Strategy 3: Alexa.VoiceCommand with Apple Music clause
+            if let voiceRes = try? await executeBehaviorNode(
+                nodeType: "Alexa.VoiceCommand",
+                operationPayload: appleTextPayload,
+                encodePayloadAsString: false
+            ), voiceRes.succeeded {
+                return
+            }
+
+            // Strategy 4: Try candidate fallback phrases (e.g. without soundtrack tag, or clean title by artist)
+            for altPhrase in allPhrases.dropFirst() {
+                let altSuffix = providerPreference.naturalVoiceSuffix(for: altPhrase)
+                let altCmdText: String
+                if targetDevice.isSpeakerGroup {
+                    altCmdText = "play \(altPhrase) \(altSuffix) on \(targetDevice.accountName)"
+                } else {
+                    altCmdText = "play \(altPhrase) \(altSuffix)"
+                }
+                var altPayload = appleTextPayload
+                altPayload["text"] = altCmdText
+                if let altRes = try? await executeBehaviorNode(
+                    nodeType: "Alexa.TextCommand",
+                    skillId: "amzn1.ask.1p.tellalexa",
+                    operationPayload: altPayload,
+                    encodePayloadAsString: false
+                ), altRes.succeeded {
+                    return
+                }
+            }
         }
 
-        // 2. Fallback A: Alexa.TextCommand ("play <phrase> on <Provider>" via skillId amzn1.ask.1p.tellalexa — proven in alexapy / alexa_media_player)
-        let voiceCommandText: String
-        if targetDevice.isSpeakerGroup {
-            voiceCommandText = "play \(primaryPhrase) \(providerPreference.voiceSuffix) on \(targetDevice.accountName)"
-        } else {
-            voiceCommandText = "play \(primaryPhrase) \(providerPreference.voiceSuffix)"
-        }
+        // =========================================================================
+        // PHASE 2: Amazon Music (ONLY if user selected .amazonMusic OR (.auto AND Apple Music failed))
+        // =========================================================================
+        if providerPreference == .amazonMusic || providerPreference == .auto {
+            let amazonMusicPayload = await validateOrBuildMusicPayload(
+                phrase: effectivePrimaryPhrase,
+                providerId: "AMAZON_MUSIC",
+                device: executionDevice,
+                customerId: customerId,
+                locale: locale
+            )
 
-        let voicePayload: [String: Any] = [
-            "deviceType": executionDevice.deviceType,
-            "deviceSerialNumber": executionDevice.serialNumber,
-            "customerId": customerId,
-            "locale": locale,
-            "text": voiceCommandText
-        ]
+            if let amzRes = try? await executeBehaviorNode(
+                nodeType: "Alexa.Music.PlaySearchPhrase",
+                operationPayload: amazonMusicPayload,
+                encodePayloadAsString: false
+            ), amzRes.succeeded {
+                return
+            }
 
-        let textCmdRes = try await executeBehaviorNode(
-            nodeType: "Alexa.TextCommand",
-            skillId: "amzn1.ask.1p.tellalexa",
-            operationPayload: voicePayload,
-            encodePayloadAsString: false
-        )
-        if textCmdRes.succeeded {
-            return
-        }
-
-        // 3. Fallback B: Alexa.VoiceCommand
-        let voiceRes = try await executeBehaviorNode(
-            nodeType: "Alexa.VoiceCommand",
-            operationPayload: voicePayload,
-            encodePayloadAsString: false
-        )
-        if voiceRes.succeeded {
-            return
+            let amzCmdText: String
+            if targetDevice.isSpeakerGroup {
+                amzCmdText = "play \(primaryPhrase) on Amazon Music on \(targetDevice.accountName)"
+            } else {
+                amzCmdText = "play \(primaryPhrase) on Amazon Music"
+            }
+            let amzPayload: [String: Any] = [
+                "deviceType": executionDevice.deviceType,
+                "deviceSerialNumber": executionDevice.serialNumber,
+                "customerId": customerId,
+                "locale": locale,
+                "text": amzCmdText
+            ]
+            if let amzTextRes = try? await executeBehaviorNode(
+                nodeType: "Alexa.TextCommand",
+                skillId: "amzn1.ask.1p.tellalexa",
+                operationPayload: amzPayload,
+                encodePayloadAsString: false
+            ), amzTextRes.succeeded {
+                return
+            }
         }
 
         let detail = lastBodySnippet.isEmpty
             ? "HTTP \(lastStatus)"
             : "HTTP \(lastStatus): \(lastBodySnippet.prefix(120))"
+        let helpTip = providerPreference == .appleMusic
+            ? "\n\nTip: To stream Apple Music, ensure the Apple Music skill is enabled and linked to your Apple ID in the Amazon Alexa app (More → Settings → Music & Podcasts → Apple Music, and set as Default Service)."
+            : ""
         throw AlexaAPIError(
-            message: "Alexa could not start playback (\(detail))."
+            message: "Alexa could not start playback on \(targetDevice.accountName) (\(detail)).\(helpTip)"
         )
     }
 

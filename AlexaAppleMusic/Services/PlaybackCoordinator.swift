@@ -44,7 +44,7 @@ final class PlaybackCoordinator: ObservableObject {
     @Published var roomVolumes: [String: Double] = [:] // serialNumber -> 0...100
     @Published var isShuffleEnabled: Bool = false
     @Published var isAutoAdvanceEnabled: Bool = true
-    @Published var providerPreference: AlexaMusicProviderPreference = .auto {
+    @Published var providerPreference: AlexaMusicProviderPreference = .appleMusic {
         didSet {
             UserDefaults.standard.set(providerPreference.rawValue, forKey: Self.providerPrefKey)
         }
@@ -652,7 +652,7 @@ final class PlaybackCoordinator: ObservableObject {
                         try? await alexaClient.playAppleMusic(
                             searchPhrase: alternate,
                             fallbackPhrases: Array(candidates.dropFirst(2)),
-                            providerPreference: .amazonMusic,
+                            providerPreference: self.providerPreference,
                             on: device
                         )
                         try? await Task.sleep(nanoseconds: 3_500_000_000)

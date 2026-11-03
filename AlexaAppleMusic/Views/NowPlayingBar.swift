@@ -67,6 +67,14 @@ struct NowPlayingBar: View {
                                             .foregroundStyle(.secondary)
                                             .lineLimit(1)
                                     }
+
+                                    if let provider = coordinator.liveSpeakerReport?.providerName, !provider.isEmpty {
+                                        let isApple = provider.localizedCaseInsensitiveContains("apple")
+                                        Text("• \(isApple ? "Apple Music" : provider)")
+                                            .font(.caption2.weight(.medium))
+                                            .foregroundStyle(isApple ? .pink : .secondary)
+                                            .lineLimit(1)
+                                    }
                                 } else {
                                     Text(coordinator.currentItem?.primaryArtist ?? "Playing on iPhone")
                                         .font(.caption)

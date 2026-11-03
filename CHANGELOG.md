@@ -9,6 +9,16 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Fixed & Enhanced
+- **Strict Apple Music Routing & Elimination of Silent Amazon Music Fallback**:
+  - **Fixed Amazon Music Override on Echo Show / Echo Devices**: Resolved an issue where playback silently fell back to Amazon Music under the hood. 
+  - **Default "Apple Music (Strict)" Mode**: Changed default `providerPreference` to `.appleMusic`, ensuring playback routes strictly through Apple Music and never degrades silently to Amazon Music.
+  - **High-Fidelity TextCommand (`amzn1.ask.1p.tellalexa`)**: Routes voice commands formatted as `"play [song] from Apple Music [on Group]"` directly to Alexa's dialog manager. This invokes the linked Apple Music skill, displaying the Apple Music logo, album art, and native player on Echo Show screens.
+  - **Dual Encoding for `Alexa.Music.PlaySearchPhrase`**: Supports both string-serialized Routine JSON payloads and dictionary objects for `musicProviderId: "APPLE_MUSIC"`.
+  - **Fixed Post-Play Verification Provider Drift**: Fixed `PlaybackCoordinator.schedulePostPlayVerification` which previously forced `.amazonMusic` during track title mismatch retries, replacing it with the user's active `providerPreference`.
+  - **Live Service Provider Badges**: Added live color-coded provider badges (Pink for Apple Music, Blue for Amazon Music) in [`NowPlayingBar.swift`](AlexaAppleMusic/Views/NowPlayingBar.swift) and [`NowPlayingDetailView.swift`](AlexaAppleMusic/Views/NowPlayingDetailView.swift) to provide full visibility into the active backend streaming provider.
+  - **In-App Account Linking Guidance**: Added clear guidance and tip banners in [`SpeakerPickerSheet.swift`](AlexaAppleMusic/Views/SpeakerPickerSheet.swift) directing users to set Apple Music as their Default Music Service in the Alexa app (`More → Settings → Music & Podcasts → Default Services`).
+
 ### Added
 - **Microphone Acoustic Auto-Sync ("TrueSync" Calibration)**:
   - Added [`AcousticSyncCalibrator.swift`](file:///Users/arjunmohankumar/Documents/Alexa-AppleMusic/AlexaAppleMusic/Services/AcousticSyncCalibrator.swift) using `AVAudioEngine` and transient cross-correlation.
