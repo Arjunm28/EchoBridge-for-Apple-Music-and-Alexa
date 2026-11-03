@@ -379,6 +379,48 @@ struct SpeakerPickerSheet: View {
                                 .buttonStyle(.bordered)
                             }
                         }
+
+                        // Local Sonos Port 1400 IP Configuration
+                        VStack(alignment: .leading, spacing: 4) {
+                            Text("Sonos Local LAN IP (Port 1400 SOAP)")
+                                .font(.caption.weight(.medium))
+                            HStack {
+                                Image(systemName: "network")
+                                    .font(.caption)
+                                    .foregroundStyle(.secondary)
+                                TextField("e.g. 192.168.1.120", text: $coordinator.sonosLocalIP)
+                                    .font(.caption.monospaced())
+                                    .textFieldStyle(.roundedBorder)
+                            }
+                            Text("Enables <30ms instant local volume & transport for Sonos Era 100")
+                                .font(.system(size: 10))
+                                .foregroundStyle(.secondary)
+                        }
+                        .padding(.vertical, 2)
+
+                        // Proportional Volume Scaling
+                        Toggle(isOn: $coordinator.proportionalGroupVolumeEnabled) {
+                            VStack(alignment: .leading, spacing: 2) {
+                                Text("Proportional Group Volume Scaling")
+                                    .font(.subheadline)
+                                Text("Preserves relative room balance when adjusting master volume")
+                                    .font(.caption2)
+                                    .foregroundStyle(.secondary)
+                            }
+                        }
+                        .tint(.green)
+
+                        // Don't Stop the Music (Auto-Radio)
+                        Toggle(isOn: $coordinator.isDontStopTheMusicEnabled) {
+                            VStack(alignment: .leading, spacing: 2) {
+                                Text("Don't Stop the Music")
+                                    .font(.subheadline)
+                                Text("Automatically queues recommendations when queue finishes")
+                                    .font(.caption2)
+                                    .foregroundStyle(.secondary)
+                            }
+                        }
+                        .tint(.pink)
                     } label: {
                         HStack(spacing: 10) {
                             Image(systemName: "slider.horizontal.3")

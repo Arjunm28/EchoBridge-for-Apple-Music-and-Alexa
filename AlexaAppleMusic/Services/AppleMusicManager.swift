@@ -446,4 +446,50 @@ final class AppleMusicManager: ObservableObject {
             return []
         }
     }
+
+    // MARK: - Apple Music URL Resolver (music.apple.com/...)
+
+    func resolveAppleMusicURL(_ rawURL: String) async -> PlayableMediaItem? {
+        let trimmed = rawURL.trimmingCharacters(in: .whitespacesAndNewlines)
+        guard let url = URL(string: trimmed), let host = url.host, host.contains("apple.com") else {
+            return nil
+        }
+
+        // 1. Check for track query item ?i=123456789
+        var targetID: String?
+        if let components = URLComponents(url: url, resolvingAgainstBaseURL: false) {
+            targetID = components.queryItems?.first(where: { $0.name == "i" })?.value
+        }
+
+        // 2. If no ?i=, check the last path component (e.g. /album/name/123456789)
+        if targetID == nil {
+            let lastComponent = url.lastPathComponent
+            if CharacterSet.decimalDigits.isSuperset(of: CharacterSet(charactersIn: lastComponent)) {
+                targetID = lastComponent
+            }
+        }
+
+        guard let id = targetID else { return nil }
+
+        // Lookup via iTunes lookup API
+        guard let lookupURL = URL(string: "https://itunes.apple.com/lookup?id=\(id)") else { return nil }
+        do {
+            let (data, _) = try await URLSession.shared.data(from: lookupURL)
+            let decoded = try JSONDecoder().decode(ITunesSearchResponse.self, from: data)
+            return decoded.results.first?.toPlayableItem()
+        } catch {
+            return nil
+        }
+    }
+
+    // MARK: - Auto-Radio Recommendations ("Don't Stop the Music")
+
+    func fetchRadioRecommendations(basedOn item: PlayableMediaItem) async -> [PlayableMediaItem] {
+        var query = item.primaryArtist
+        if query.isEmpty {
+            query = item.cleanTitle
+        }
+        let results = await searchITunesCatalog(query: "\(query) hits", kind: .song, limit: 12)
+        return results.filter { $0.id != item.id && $0.cleanTitle.lowercased() != item.cleanTitle.lowercased() }
+    }
 }

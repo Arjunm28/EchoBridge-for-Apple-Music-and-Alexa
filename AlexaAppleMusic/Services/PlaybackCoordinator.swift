@@ -54,12 +54,34 @@ final class PlaybackCoordinator: ObservableObject {
     @Published var statusBanner: String?
     @Published var errorMessage: String?
 
+    /// Proportional Multi-Room Group Volume Scaling (inspired by Music Assistant & SoCo)
+    @Published var proportionalGroupVolumeEnabled: Bool = true {
+        didSet {
+            UserDefaults.standard.set(proportionalGroupVolumeEnabled, forKey: Self.proportionalVolumeKey)
+        }
+    }
+    /// "Don't Stop the Music" continuous autoplay recommendation engine
+    @Published var isDontStopTheMusicEnabled: Bool = true {
+        didSet {
+            UserDefaults.standard.set(isDontStopTheMusicEnabled, forKey: Self.dontStopMusicKey)
+        }
+    }
+    /// Optional Local LAN IP for Sonos Era 100 on Port 1400 (SOAP UPnP for <30ms latency)
+    @Published var sonosLocalIP: String = "" {
+        didSet {
+            UserDefaults.standard.set(sonosLocalIP, forKey: Self.sonosLocalIPKey)
+        }
+    }
+
     private static let savedSpeakerSerialKey = "alexa_saved_target_serial"
     private static let providerPrefKey = "alexa_music_provider_pref"
     private static let customPhraseMapKey = "alexa_custom_phrase_map"
     private static let linkedCompanionsKey = "alexa_linked_companion_serials"
     private static let bridgeAirPlayKey = "alexa_bridge_airplay_enabled"
     private static let sonosSyncOffsetKey = "alexa_sonos_sync_offset_sec"
+    private static let proportionalVolumeKey = "alexa_proportional_volume_enabled"
+    private static let dontStopMusicKey = "alexa_dont_stop_music_enabled"
+    private static let sonosLocalIPKey = "alexa_sonos_local_ip"
 
     private let alexaClient = AlexaAPIClient.shared
     private var pollingTask: Task<Void, Never>?
@@ -90,6 +112,13 @@ final class PlaybackCoordinator: ObservableObject {
         } else {
             self.sonosSyncOffsetSeconds = 1.8
         }
+        if UserDefaults.standard.object(forKey: Self.proportionalVolumeKey) != nil {
+            self.proportionalGroupVolumeEnabled = UserDefaults.standard.bool(forKey: Self.proportionalVolumeKey)
+        }
+        if UserDefaults.standard.object(forKey: Self.dontStopMusicKey) != nil {
+            self.isDontStopTheMusicEnabled = UserDefaults.standard.bool(forKey: Self.dontStopMusicKey)
+        }
+        self.sonosLocalIP = UserDefaults.standard.string(forKey: Self.sonosLocalIPKey) ?? ""
 
         configureAudioSession()
         setupRemoteCommandCenter()
@@ -793,17 +822,30 @@ final class PlaybackCoordinator: ObservableObject {
         let queue = currentQueueList()
 
         if let current = requestedItem ?? currentItem,
-           let idx = queue.firstIndex(where: { $0.id == current.id }),
-           queue.count > 1 {
-            let nextIndex: Int
-            if isShuffleEnabled {
-                nextIndex = Int.random(in: 0..<queue.count)
-            } else {
-                nextIndex = (idx + 1) % queue.count
+           let idx = queue.firstIndex(where: { $0.id == current.id }) {
+            // Check if we are at or near the end of the queue
+            if idx == queue.count - 1 && isDontStopTheMusicEnabled {
+                statusBanner = "Fetching continuous radio recommendations..."
+                let recs = await AppleMusicManager.shared.fetchRadioRecommendations(basedOn: current)
+                if !recs.isEmpty {
+                    self.activeQueue = queue + recs
+                    await play(recs[0], inQueue: self.activeQueue)
+                    statusBanner = nil
+                    return
+                }
             }
-            let nextItem = queue[nextIndex]
-            await play(nextItem, inQueue: queue)
-            return
+
+            if queue.count > 1 {
+                let nextIndex: Int
+                if isShuffleEnabled {
+                    nextIndex = Int.random(in: 0..<queue.count)
+                } else {
+                    nextIndex = (idx + 1) % queue.count
+                }
+                let nextItem = queue[nextIndex]
+                await play(nextItem, inQueue: queue)
+                return
+            }
         }
 
         if case .alexaDevice(let device) = selectedTarget {
@@ -883,13 +925,36 @@ final class PlaybackCoordinator: ObservableObject {
 
     func setVolume(_ newVolume: Double) async {
         lastManualCommandTime = Date()
+        let oldVolume = self.volumeLevel
         let clamped = max(0, min(100, newVolume))
         self.volumeLevel = clamped
+
+        // Fast Local Sonos Control if IP is configured
+        if !sonosLocalIP.isEmpty {
+            Task {
+                try? await SonosLocalUPnPClient.shared.setVolume(Int(clamped), ip: self.sonosLocalIP)
+            }
+        }
+
         switch selectedTarget {
         case .localDevice:
             avPlayer?.volume = Float(clamped / 100.0)
         case .alexaDevice(let device):
-            try? await alexaClient.sendTransportCommand(.volume(Int(clamped)), to: device)
+            // Proportional Multi-Room Group Volume Scaling (Music Assistant pattern)
+            if device.isSpeakerGroup && proportionalGroupVolumeEnabled && oldVolume > 0 {
+                let ratio = clamped / oldVolume
+                let members = alexaClient.memberDevices(for: device) + activeCompanionDevices
+                for member in members {
+                    let currentMemberVol = roomVolumes[member.serialNumber] ?? oldVolume
+                    let newMemberVol = max(0, min(100, currentMemberVol * ratio))
+                    roomVolumes[member.serialNumber] = newMemberVol
+                    Task {
+                        await self.alexaClient.setDeviceVolume(Int(newMemberVol), for: member)
+                    }
+                }
+            } else {
+                try? await alexaClient.sendTransportCommand(.volume(Int(clamped)), to: device)
+            }
         }
     }
 
@@ -900,6 +965,14 @@ final class PlaybackCoordinator: ObservableObject {
     func setRoomVolume(_ newVolume: Double, for speaker: AlexaDevice) async {
         let clamped = max(0, min(100, newVolume))
         roomVolumes[speaker.serialNumber] = clamped
+
+        // Check if this speaker matches the local Sonos IP
+        if speaker.isSonosOrThirdPartySpeaker && !sonosLocalIP.isEmpty {
+            Task {
+                try? await SonosLocalUPnPClient.shared.setVolume(Int(clamped), ip: self.sonosLocalIP)
+            }
+        }
+
         await alexaClient.setDeviceVolume(Int(clamped), for: speaker)
     }
 

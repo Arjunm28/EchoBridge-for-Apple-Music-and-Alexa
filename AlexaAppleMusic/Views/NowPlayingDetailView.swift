@@ -470,6 +470,15 @@ struct NowPlayingDetailView: View {
                 Label("Up Next in Queue", systemImage: "text.line.first.and.arrowtriangle.forward")
                     .font(.subheadline.weight(.bold))
                 Spacer()
+                if coordinator.isDontStopTheMusicEnabled {
+                    Text("Auto-Radio On")
+                        .font(.system(size: 10, weight: .bold))
+                        .padding(.horizontal, 6)
+                        .padding(.vertical, 3)
+                        .background(Color.pink.opacity(0.18))
+                        .foregroundStyle(.pink)
+                        .clipShape(Capsule())
+                }
                 Toggle("Auto-Next", isOn: $coordinator.isAutoAdvanceEnabled)
                     .labelsHidden()
                     .tint(.pink)

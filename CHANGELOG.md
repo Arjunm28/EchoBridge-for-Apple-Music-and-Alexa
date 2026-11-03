@@ -9,6 +9,21 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Added
+- **Direct Local Sonos UPnP Controller (`SonosLocalUPnPClient.swift`)**:
+  - Implements SOAP control over local LAN on TCP port 1400 (`/MediaRenderer/RenderingControl/Control` & `/MediaRenderer/AVTransport/Control`).
+  - Supports instant `<30ms` latency for volume scrubbing and transport actions on Sonos Era 100 without cloud hops.
+- **Proportional Multi-Room Group Volume Scaling**:
+  - Dragging master group volume dynamically scales individual room speakers relative to their existing balance ratio (inspired by Music Assistant and SoCo `GroupRenderingControl`).
+- **"Don't Stop the Music" (Continuous Radio Engine)**:
+  - Automatically fetches and queues Apple Music recommendations when reaching the end of the active queue so playback never stops.
+- **Active Household Media Session Discovery**:
+  - Queries `GET /api/np/list-media-sessions` in `AlexaAPIClient.swift` to identify currently playing Echo devices and clusters across the home.
+- **Parallel Alexa Behavior Sequences (`ParallelNode`)**:
+  - Dispatches multi-speaker behavior nodes in parallel in a single request payload, optimizing command delivery.
+- **Apple Music URL & Clipboard Resolver (`music.apple.com/...`)**:
+  - Added "Link" button in Home/Library toolbar to paste and resolve any Apple Music track/album link directly to playback targets.
+
 ### Changed
 - **Streamlined 3-Tab Navigation & Decluttered Player UI**:
   - Updated [`ContentView.swift`](AlexaAppleMusic/Views/ContentView.swift) with dedicated **Home**, **Library**, and **Speakers** tabs and `.safeAreaInset(edge: .bottom)` mini-player docking.

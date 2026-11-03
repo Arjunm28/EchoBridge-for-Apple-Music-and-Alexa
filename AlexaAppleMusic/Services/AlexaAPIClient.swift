@@ -160,6 +160,38 @@ final class AlexaAPIClient: ObservableObject {
         return group.clusterMembers.compactMap { bySerial[$0] }
     }
 
+    /// Discovers active media playback sessions across the household via `/api/np/list-media-sessions`.
+    /// Returns devices that are currently streaming or active.
+    func fetchActiveHouseholdSessions() async -> [AlexaDevice] {
+        if authManager.isDemoMode {
+            return speakerGroups.filter { $0.accountName.localizedCaseInsensitiveContains("downstairs") }
+        }
+
+        await authManager.fetchCSRFTokenIfNeeded()
+        let region = authManager.region
+        let url = URL(string: "https://\(region.webHost)/api/np/list-media-sessions")!
+
+        guard let request = try? buildAuthenticatedRequest(url: url, method: "GET"),
+              let (data, response) = try? await URLSession.shared.data(for: request),
+              let http = response as? HTTPURLResponse, (200...299).contains(http.statusCode),
+              let json = try? JSONSerialization.jsonObject(with: data) as? [String: Any],
+              let sessions = json["mediaSessionList"] as? [[String: Any]] else {
+            return []
+        }
+
+        var activeSerials: Set<String> = []
+        for session in sessions {
+            if let dsn = session["deviceSerialNumber"] as? String {
+                activeSerials.insert(dsn)
+            }
+            if let clusterMembers = session["clusterMembers"] as? [String] {
+                activeSerials.formUnion(clusterMembers)
+            }
+        }
+
+        return allDevices.filter { activeSerials.contains($0.serialNumber) }
+    }
+
     /// Returns the actual `AlexaDevice` member objects inside a Multi-Room speaker group
     func memberDevices(for group: AlexaDevice) -> [AlexaDevice] {
         guard group.isSpeakerGroup else { return [group] }
@@ -420,6 +452,40 @@ final class AlexaAPIClient: ObservableObject {
         }
 
         return (false, lastCode, lastSnippet)
+    }
+
+    /// Executes multiple behavior nodes in parallel using `com.amazon.alexa.behaviors.model.ParallelNode`
+    func executeParallelBehaviorNodes(nodes: [[String: Any]]) async throws -> Bool {
+        if authManager.isDemoMode { return true }
+        let parallelDict: [String: Any] = [
+            "@type": "com.amazon.alexa.behaviors.model.Sequence",
+            "startNode": [
+                "@type": "com.amazon.alexa.behaviors.model.ParallelNode",
+                "nodes": nodes
+            ]
+        ]
+
+        guard let sequenceData = try? JSONSerialization.data(withJSONObject: parallelDict),
+              let sequenceJsonString = String(data: sequenceData, encoding: .utf8) else {
+            throw URLError(.cannotParseResponse)
+        }
+
+        let previewBody: [String: Any] = [
+            "behaviorId": "PREVIEW",
+            "sequenceJson": sequenceJsonString,
+            "status": "ENABLED"
+        ]
+
+        let region = authManager.region
+        let previewURL = URL(string: "https://\(region.webHost)/api/behaviors/preview")!
+        var request = try buildAuthenticatedRequest(url: previewURL, method: "POST")
+        request.httpBody = try JSONSerialization.data(withJSONObject: previewBody)
+
+        let (_, response) = try await URLSession.shared.data(for: request)
+        if let http = response as? HTTPURLResponse, (200...299).contains(http.statusCode) {
+            return true
+        }
+        return false
     }
 
     private func resolveExecutionTarget(for device: AlexaDevice, basePhrase: String) -> (AlexaDevice, String) {

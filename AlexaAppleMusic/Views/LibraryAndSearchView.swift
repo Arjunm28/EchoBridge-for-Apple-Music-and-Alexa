@@ -30,6 +30,8 @@ struct LibraryAndSearchView: View {
     @State private var selectedFilter: MediaKind = .song
     @State private var customPhraseText: String = ""
     @State private var showCustomPhraseAlert: Bool = false
+    @State private var showPasteURLAlert: Bool = false
+    @State private var pasteURLInput: String = ""
     @State private var selectedCollectionItem: PlayableMediaItem?
 
     private let appleMusicStations: [(title: String, subtitle: String, phrase: String, icon: String, colors: [Color])] = [
@@ -109,16 +111,31 @@ struct LibraryAndSearchView: View {
             }
             .toolbar {
                 ToolbarItem(placement: .topBarLeading) {
-                    Button {
-                        showCustomPhraseAlert = true
-                    } label: {
-                        HStack(spacing: 5) {
-                            Image(systemName: "waveform.badge.mic")
-                                .font(.subheadline)
-                            Text("Ask Alexa")
-                                .font(.caption.weight(.semibold))
+                    HStack(spacing: 12) {
+                        Button {
+                            showCustomPhraseAlert = true
+                        } label: {
+                            HStack(spacing: 4) {
+                                Image(systemName: "waveform.badge.mic")
+                                Text("Ask")
+                            }
+                            .font(.caption.weight(.semibold))
+                            .foregroundStyle(.pink)
                         }
-                        .foregroundStyle(.pink)
+
+                        Button {
+                            if let clipboard = UIPasteboard.general.string, clipboard.contains("apple.com") {
+                                pasteURLInput = clipboard
+                            }
+                            showPasteURLAlert = true
+                        } label: {
+                            HStack(spacing: 4) {
+                                Image(systemName: "link")
+                                Text("Link")
+                            }
+                            .font(.caption.weight(.semibold))
+                            .foregroundStyle(.pink)
+                        }
                     }
                 }
                 ToolbarItem(placement: .topBarTrailing) {
@@ -163,6 +180,23 @@ struct LibraryAndSearchView: View {
                 Button("Cancel", role: .cancel) {}
             } message: {
                 Text("Type any song, movie, artist, or station to request directly on \(coordinator.selectedTarget.displayName).")
+            }
+            .alert("Play Apple Music Link", isPresented: $showPasteURLAlert) {
+                TextField("Paste music.apple.com link", text: $pasteURLInput)
+                Button("Cast Link") {
+                    let urlStr = pasteURLInput
+                    pasteURLInput = ""
+                    Task {
+                        if let resolved = await musicManager.resolveAppleMusicURL(urlStr) {
+                            await coordinator.play(resolved)
+                        } else {
+                            coordinator.errorMessage = "Could not resolve Apple Music link."
+                        }
+                    }
+                }
+                Button("Cancel", role: .cancel) {}
+            } message: {
+                Text("Paste any song or album link copied from Apple Music to immediately cast it to \(coordinator.selectedTarget.displayName).")
             }
             .sheet(item: $selectedCollectionItem) { collection in
                 CollectionDetailSheet(collection: collection)
