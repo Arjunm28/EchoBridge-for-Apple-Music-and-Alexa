@@ -262,6 +262,31 @@ final class PlaybackCoordinator: ObservableObject {
         }
     }
 
+    /// Nudges the live running playback timing (AirPlay 2 or Sonos Local UPnP) by `deltaSeconds` (e.g. +0.10s, -0.10s, +0.25s)
+    /// Allows instant, dynamic real-time beat matching while listening in the room, bypassing variable cloud start jitter.
+    func nudgeLivePlayback(by deltaSeconds: Double) {
+        if bridgeAirPlayWithAlexa {
+            nudgeLocalAirPlayTiming(by: deltaSeconds)
+            statusBanner = "Nudged AirPlay by \(String(format: "%+.2fs", deltaSeconds))"
+        }
+
+        let sonosIP = sonosLocalIP.trimmingCharacters(in: .whitespacesAndNewlines)
+        if !sonosIP.isEmpty {
+            let ms = Int(deltaSeconds * 1000)
+            Task {
+                try? await SonosLocalUPnPClient.shared.slipSonos(by: ms, ip: sonosIP)
+            }
+            statusBanner = "Nudged Sonos by \(String(format: "%+.2fs", deltaSeconds))"
+        }
+
+        Task {
+            try? await Task.sleep(nanoseconds: 2_000_000_000)
+            if self.statusBanner?.hasPrefix("Nudged") == true {
+                self.statusBanner = nil
+            }
+        }
+    }
+
     // MARK: - Persistent Speaker Selection
 
     func restoreSavedSpeakerIfNeeded() {

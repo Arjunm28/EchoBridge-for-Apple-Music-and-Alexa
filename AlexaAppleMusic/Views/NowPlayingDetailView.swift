@@ -252,6 +252,26 @@ struct NowPlayingDetailView: View {
                         }
                         .padding(.horizontal, 24)
 
+                        // Live Multi-Speaker Beat Nudge (Phase Alignment while listening)
+                        if !coordinator.activeCompanionDevices.isEmpty || coordinator.bridgeAirPlayWithAlexa || !coordinator.sonosLocalIP.isEmpty {
+                            HStack(spacing: 8) {
+                                Label("Live Sync Nudge", systemImage: "waveform.badge.magnifyingglass")
+                                    .font(.caption2.weight(.semibold))
+                                    .foregroundStyle(.secondary)
+                                Spacer()
+                                Button("-100ms") { coordinator.nudgeLivePlayback(by: -0.10) }
+                                    .font(.caption2.weight(.bold))
+                                    .buttonStyle(.bordered)
+                                    .controlSize(.mini)
+                                Button("+100ms") { coordinator.nudgeLivePlayback(by: 0.10) }
+                                    .font(.caption2.weight(.bold))
+                                    .buttonStyle(.bordered)
+                                    .controlSize(.mini)
+                            }
+                            .padding(.horizontal, 24)
+                            .padding(.top, 2)
+                        }
+
                         // Expandable Drawer 1: Song Match & Custom Phrase Override (Shown when tapped or on mismatch)
                         if (showMatchDrawer || coordinator.isSpeakerMismatch),
                            let targetSong = coordinator.requestedItem ?? coordinator.currentItem,

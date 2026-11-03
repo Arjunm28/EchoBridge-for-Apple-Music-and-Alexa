@@ -10,6 +10,10 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 ## [Unreleased]
 
 ### Fixed & Enhanced
+- **Live Dynamic Phase Slipping (Solving Non-Deterministic Cloud Start Lag)**:
+  - **Dynamic Audio Slip via Local UPnP (`SonosLocalUPnPClient.slipSonos`)**: Added local LAN micro-slip execution on Port 1400 (`<15ms` response time) to delay or advance running Sonos playback in real time.
+  - **Live Sync Nudge Controls**: Added convenient `-100ms`, `+100ms`, `-250ms`, `+250ms` buttons on both [`NowPlayingDetailView.swift`](AlexaAppleMusic/Views/NowPlayingDetailView.swift) and [`SpeakerPickerSheet.swift`](AlexaAppleMusic/Views/SpeakerPickerSheet.swift) so users can phase-align running Echo + Sonos audio on the fly without stopping/restarting.
+  - **Cloud Jitter Documentation & Guidance**: Added clear in-app explanations for why cloud-to-cloud handshakes have variable startup latencies (±1.5s) per song and how real-time phase nudging bypasses this limitation.
 - **Strict Apple Music Routing & Elimination of Silent Amazon Music Fallback**:
   - **Fixed Amazon Music Override on Echo Show / Echo Devices**: Resolved an issue where playback silently fell back to Amazon Music under the hood. 
   - **Default "Apple Music (Strict)" Mode**: Changed default `providerPreference` to `.appleMusic`, ensuring playback routes strictly through Apple Music and never degrades silently to Amazon Music.

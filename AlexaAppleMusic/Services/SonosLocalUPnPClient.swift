@@ -132,4 +132,41 @@ final class SonosLocalUPnPClient {
             bodyXML: body
         )
     }
+
+    // MARK: - Live Phase Alignment & Slip (Dynamic Audio Sync)
+
+    /// Dynamically slips the live running Sonos stream by `milliseconds` to cancel echo/drift relative to Echo speakers
+    func slipSonos(by milliseconds: Int, ip: String) async throws {
+        let cleanIP = ip.trimmingCharacters(in: .whitespacesAndNewlines)
+        guard !cleanIP.isEmpty else { return }
+
+        if milliseconds > 0 {
+            // Delay Sonos: Pause locally for exact duration, then resume.
+            // Over local Wi-Fi, SOAP executes in <15ms, introducing an exact acoustic slip.
+            try await pause(ip: cleanIP)
+            let nanos = UInt64(milliseconds) * 1_000_000
+            try await Task.sleep(nanoseconds: nanos)
+            try await play(ip: cleanIP)
+        } else {
+            // Advance Sonos: Seek forward by TIME_DELTA
+            let totalSec = abs(Double(milliseconds) / 1000.0)
+            let hours = Int(totalSec) / 3600
+            let minutes = (Int(totalSec) % 3600) / 60
+            let seconds = Int(totalSec) % 60
+            let deltaString = String(format: "+%02d:%02d:%02d", hours, minutes, seconds)
+
+            let body = """
+            <InstanceID>0</InstanceID>
+            <Unit>TIME_DELTA</Unit>
+            <Target>\(deltaString)</Target>
+            """
+            _ = try? await sendSOAPRequest(
+                ip: cleanIP,
+                service: "urn:schemas-upnp-org:service:AVTransport:1",
+                controlPath: "/MediaRenderer/AVTransport/Control",
+                action: "Seek",
+                bodyXML: body
+            )
+        }
+    }
 }

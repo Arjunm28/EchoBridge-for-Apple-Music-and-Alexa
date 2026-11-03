@@ -390,27 +390,50 @@ struct SpeakerPickerSheet: View {
                         }
                         .tint(.pink)
 
-                        if coordinator.bridgeAirPlayWithAlexa {
+                        // D. Live Real-Time Beat Nudge (Phase Alignment while listening)
+                        VStack(alignment: .leading, spacing: 6) {
                             HStack {
-                                Text("AirPlay Route & Beat Nudge")
-                                    .font(.caption)
+                                Text("Live Audio Phase Nudge")
+                                    .font(.caption.weight(.semibold))
                                     .foregroundStyle(.secondary)
                                 Spacer()
-                                SystemAirPlayRouteButton()
-                                    .frame(width: 34, height: 34)
-                                Button("-0.25s") {
-                                    coordinator.nudgeLocalAirPlayTiming(by: -0.25)
+                                if coordinator.bridgeAirPlayWithAlexa {
+                                    SystemAirPlayRouteButton()
+                                        .frame(width: 24, height: 24)
+                                }
+                            }
+
+                            HStack(spacing: 8) {
+                                Button("-250ms") {
+                                    coordinator.nudgeLivePlayback(by: -0.25)
                                 }
                                 .font(.caption2.weight(.bold))
                                 .buttonStyle(.bordered)
 
-                                Button("+0.25s") {
-                                    coordinator.nudgeLocalAirPlayTiming(by: 0.25)
+                                Button("-100ms") {
+                                    coordinator.nudgeLivePlayback(by: -0.10)
+                                }
+                                .font(.caption2.weight(.bold))
+                                .buttonStyle(.bordered)
+
+                                Button("+100ms") {
+                                    coordinator.nudgeLivePlayback(by: 0.10)
+                                }
+                                .font(.caption2.weight(.bold))
+                                .buttonStyle(.bordered)
+
+                                Button("+250ms") {
+                                    coordinator.nudgeLivePlayback(by: 0.25)
                                 }
                                 .font(.caption2.weight(.bold))
                                 .buttonStyle(.bordered)
                             }
+
+                            Text("Nudges running audio live via Sonos Local UPnP or AirPlay to cancel echo without restarting.")
+                                .font(.system(size: 10))
+                                .foregroundStyle(.secondary)
                         }
+                        .padding(.vertical, 4)
 
                         // Local Sonos Port 1400 IP Configuration
                         VStack(alignment: .leading, spacing: 4) {
@@ -751,6 +774,18 @@ struct AcousticCalibrationCard: View {
                         .foregroundStyle(.green)
                     }
                     .padding(.top, 2)
+
+                    HStack(alignment: .top, spacing: 6) {
+                        Image(systemName: "info.circle.fill")
+                            .font(.caption2)
+                            .foregroundStyle(.orange)
+                        Text("Cloud Jitter Note: Amazon and Sonos clouds have variable network & buffer times (±1.5s) on every song launch. If a song starts out of phase, use 'Live Audio Phase Nudge' below while music plays to align without restarting.")
+                            .font(.system(size: 10))
+                            .foregroundStyle(.secondary)
+                    }
+                    .padding(8)
+                    .background(Color.orange.opacity(0.08))
+                    .cornerRadius(8)
                 }
             }
         }
