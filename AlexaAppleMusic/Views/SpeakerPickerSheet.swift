@@ -652,45 +652,77 @@ struct AcousticCalibrationCard: View {
                 }
                 .padding(.vertical, 4)
             } else {
-                HStack {
-                    VStack(alignment: .leading, spacing: 2) {
-                        Text(calibrator.statusMessage)
-                            .font(.caption2)
-                            .foregroundStyle(calibrator.confidenceScore > 0 ? .green : .secondary)
+                VStack(alignment: .leading, spacing: 8) {
+                    HStack {
+                        VStack(alignment: .leading, spacing: 2) {
+                            Text(calibrator.statusMessage)
+                                .font(.caption2)
+                                .foregroundStyle(calibrator.confidenceScore > 0 ? .green : .secondary)
 
-                        if let ms = calibrator.detectedOffsetMs {
-                            Text("Measured lag: \(String(format: "%.0f ms", ms))")
-                                .font(.system(size: 11, weight: .bold, design: .monospaced))
-                                .foregroundStyle(.primary)
-                        }
-                    }
-
-                    Spacer()
-
-                    Button {
-                        if case .alexaDevice(let target) = coordinator.selectedTarget {
-                            let sonosTarget = coordinator.activeCompanionDevices.first
-                            Task {
-                                await calibrator.startCalibration(
-                                    targetEcho: target,
-                                    targetSonos: sonosTarget
-                                )
+                            if let ms = calibrator.detectedOffsetMs {
+                                Text("Measured lag: \(String(format: "%.0f ms", ms))")
+                                    .font(.system(size: 11, weight: .bold, design: .monospaced))
+                                    .foregroundStyle(.primary)
                             }
                         }
-                    } label: {
-                        HStack(spacing: 5) {
-                            Image(systemName: "mic.fill")
-                            Text("Calibrate via Mic")
+
+                        Spacer()
+
+                        Button {
+                            if case .alexaDevice(let target) = coordinator.selectedTarget {
+                                let sonosTarget = coordinator.activeCompanionDevices.first
+                                Task {
+                                    await calibrator.startCalibration(
+                                        targetEcho: target,
+                                        targetSonos: sonosTarget
+                                    )
+                                }
+                            }
+                        } label: {
+                            HStack(spacing: 5) {
+                                Image(systemName: "mic.fill")
+                                Text("Calibrate via Mic")
+                            }
+                            .font(.caption.weight(.bold))
+                            .padding(.horizontal, 10)
+                            .padding(.vertical, 6)
+                            .background(Color.pink.opacity(0.18))
+                            .foregroundStyle(.pink)
+                            .clipShape(Capsule())
                         }
-                        .font(.caption.weight(.bold))
-                        .padding(.horizontal, 10)
-                        .padding(.vertical, 6)
-                        .background(Color.pink.opacity(0.18))
-                        .foregroundStyle(.pink)
-                        .clipShape(Capsule())
+                        .buttonStyle(.plain)
+                        .disabled(!coordinator.selectedTarget.isAlexaTarget)
                     }
-                    .buttonStyle(.plain)
-                    .disabled(!coordinator.selectedTarget.isAlexaTarget)
+
+                    // Quick Manual Step Tuning if automatic is in a challenging acoustic environment
+                    HStack(spacing: 8) {
+                        Text("Fine Nudge:")
+                            .font(.caption2)
+                            .foregroundStyle(.secondary)
+
+                        Button("-100ms") {
+                            coordinator.sonosSyncOffsetSeconds = max(-2.0, coordinator.sonosSyncOffsetSeconds - 0.1)
+                            Task { await coordinator.resyncMultiRoomOutput() }
+                        }
+                        .font(.caption2.weight(.semibold))
+                        .buttonStyle(.bordered)
+
+                        Button("+100ms") {
+                            coordinator.sonosSyncOffsetSeconds = min(4.0, coordinator.sonosSyncOffsetSeconds + 0.1)
+                            Task { await coordinator.resyncMultiRoomOutput() }
+                        }
+                        .font(.caption2.weight(.semibold))
+                        .buttonStyle(.bordered)
+
+                        Spacer()
+
+                        Button("Re-Sync Now") {
+                            Task { await coordinator.resyncMultiRoomOutput() }
+                        }
+                        .font(.caption2.weight(.bold))
+                        .foregroundStyle(.green)
+                    }
+                    .padding(.top, 2)
                 }
             }
         }

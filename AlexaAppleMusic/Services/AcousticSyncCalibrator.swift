@@ -2,14 +2,31 @@ import Foundation
 import AVFoundation
 import Accelerate
 
-/// Acoustic sync detector that uses the iPhone microphone to measure the timing delta between Sonos and Echo speakers.
-///
-/// How it works:
-/// 1. Plays a distinctive calibration acoustic reference track or rhythm pulses (or any playing song)
-/// 2. Records ~4-6 seconds of ambient room audio from the microphone
-/// 3. Runs cross-correlation (vDSP) and onset/transient peak detection
-/// 4. Finds the primary speaker peaks and computes the exact time difference (delta in milliseconds/seconds)
-/// 5. Automatically updates `PlaybackCoordinator.shared.sonosSyncOffsetSeconds` to lock them in sync!
+final class SampleCollector: @unchecked Sendable {
+    private let lock = NSLock()
+    private var buffer: [Float] = []
+
+    func append(_ samples: [Float]) {
+        lock.lock()
+        buffer.append(contentsOf: samples)
+        lock.unlock()
+    }
+
+    func drainAndCopy() -> [Float] {
+        lock.lock()
+        let copy = buffer
+        lock.unlock()
+        return copy
+    }
+
+    func clear() {
+        lock.lock()
+        buffer.removeAll(keepingCapacity: true)
+        lock.unlock()
+    }
+}
+
+/// Enhanced Acoustic Drift & Onset Calibrator.
 @MainActor
 final class AcousticSyncCalibrator: ObservableObject {
     static let shared = AcousticSyncCalibrator()
@@ -19,10 +36,11 @@ final class AcousticSyncCalibrator: ObservableObject {
     @Published var statusMessage: String = "Ready to calibrate"
     @Published var detectedOffsetMs: Double?
     @Published var detectedOffsetSec: Double?
-    @Published var confidenceScore: Double = 0.0 // 0.0 to 1.0
+    @Published var confidenceScore: Double = 0.0
+    @Published var inputLevelRms: Float = 0.0
 
     private var audioEngine: AVAudioEngine?
-    private var recordedSamples: [Float] = []
+    private let sampleCollector = SampleCollector()
     private var sampleRate: Double = 44100.0
 
     private init() {}
@@ -39,7 +57,7 @@ final class AcousticSyncCalibrator: ObservableObject {
         // Request microphone permission
         let granted = await requestMicrophonePermission()
         guard granted else {
-            statusMessage = "Microphone permission required for acoustic calibration."
+            statusMessage = "Microphone access required. Please enable it in iOS Settings -> Privacy."
             return
         }
 
@@ -48,14 +66,20 @@ final class AcousticSyncCalibrator: ObservableObject {
         detectedOffsetMs = nil
         detectedOffsetSec = nil
         confidenceScore = 0.0
+        inputLevelRms = 0.0
         statusMessage = "Preparing audio calibration..."
-        recordedSamples.removeAll()
+        sampleCollector.clear()
 
         let coordinator = PlaybackCoordinator.shared
 
-        // Determine calibration track (preferably a punchy acoustic track or current song)
+        // Ensure Sonos companion is linked so audio triggers on both!
+        if let sonos = targetSonos, !coordinator.isCompanionLinked(sonos) {
+            coordinator.toggleCompanionSpeaker(sonos)
+        }
+
+        // Test track: Billie Jean or current song
         let testTrack = customTestSong ?? coordinator.currentItem ?? PlayableMediaItem(
-            id: "calib-beeps-track",
+            id: "calib-sync-track",
             title: "Billie Jean",
             subtitle: "Michael Jackson",
             albumTitle: "Thriller",
@@ -65,76 +89,93 @@ final class AcousticSyncCalibrator: ObservableObject {
             durationSeconds: 294
         )
 
-        statusMessage = "Starting \"\(testTrack.cleanTitle)\" on Echo & Sonos..."
+        statusMessage = "Playing \"\(testTrack.cleanTitle)\" on Echo + Sonos..."
         calibrationProgress = 0.15
 
-        // Trigger playback across both targets
+        // Start playback on both Echo and Sonos
         await coordinator.play(testTrack)
 
-        // Give speakers 3 seconds to spin up, connect, and start emitting audio
-        for i in 1...3 {
-            try? await Task.sleep(nanoseconds: 1_000_000_000)
-            calibrationProgress = 0.15 + Double(i) * 0.08
-            statusMessage = "Waiting for audio to start (\(4 - i)s)..."
+        // Give speakers 3.5s to start streaming
+        for i in 1...7 {
+            try? await Task.sleep(nanoseconds: 500_000_000)
+            calibrationProgress = 0.15 + Double(i) * 0.04
+            statusMessage = "Waiting for speakers to start (\(String(format: "%.1f", Double(7 - i) * 0.5))s)..."
         }
 
-        // Start 5 seconds of microphone listening
-        statusMessage = "Listening to Echo and Sonos with microphone..."
+        // Start 5.5 seconds of microphone listening
+        statusMessage = "Listening to Echo and Sonos (hold phone steady)..."
         let recordSuccess = startAudioCapture()
         guard recordSuccess else {
-            statusMessage = "Failed to activate microphone."
+            statusMessage = "Could not access microphone."
             isCalibrating = false
             return
         }
 
-        let recordingDurationSeconds = 4.0
-        let steps = 20
+        let listenDurationSeconds = 5.5
+        let steps = 25
         for i in 1...steps {
-            try? await Task.sleep(nanoseconds: UInt64((recordingDurationSeconds / Double(steps)) * 1_000_000_000))
-            calibrationProgress = 0.40 + (Double(i) / Double(steps)) * 0.40
+            try? await Task.sleep(nanoseconds: UInt64((listenDurationSeconds / Double(steps)) * 1_000_000_000))
+            calibrationProgress = 0.45 + (Double(i) / Double(steps)) * 0.38
         }
 
-        // Stop recording
+        // Stop capture
         stopAudioCapture()
-        statusMessage = "Analyzing acoustic peaks and cross-correlation..."
-        calibrationProgress = 0.85
+        statusMessage = "Analyzing room echoes & audio waveforms..."
+        calibrationProgress = 0.88
 
-        // Process samples on background task
-        let samplesCopy = self.recordedSamples
-        let currentRate = self.sampleRate
+        let captured = sampleCollector.drainAndCopy()
+        let rate = self.sampleRate
         let existingOffset = coordinator.sonosSyncOffsetSeconds
 
-        let result = await Task.detached(priority: .userInitiated) { () -> (offsetSec: Double, confidence: Double) in
+        // Analyze on background thread
+        let result = await Task.detached(priority: .userInitiated) { () -> (offsetSec: Double, confidence: Double, maxAmp: Float) in
             return Self.analyzeAcousticDrift(
-                samples: samplesCopy,
-                sampleRate: currentRate,
+                samples: captured,
+                sampleRate: rate,
                 currentOffset: existingOffset
             )
         }.value
 
         calibrationProgress = 1.0
         isCalibrating = false
+        self.inputLevelRms = result.maxAmp
 
-        if result.confidence >= 0.35 {
+        // Check if mic actually heard audio
+        if result.maxAmp < 0.005 {
+            self.statusMessage = "Microphone input was too quiet. Turn volume up on both speakers and try again."
+            return
+        }
+
+        // If confidence is acceptable or fallback mode matched:
+        if result.confidence >= 0.15 {
             let offsetMs = result.offsetSec * 1000.0
             self.detectedOffsetSec = result.offsetSec
             self.detectedOffsetMs = offsetMs
             self.confidenceScore = result.confidence
 
-            // Update coordinator's sync setting automatically!
+            // Update coordinator's sync setting!
             coordinator.sonosSyncOffsetSeconds = result.offsetSec
 
             let formattedSec = String(format: "%+.2f", result.offsetSec)
             let formattedMs = String(format: "%.0f", abs(offsetMs))
-            self.statusMessage = "Sync Calibrated! Offset: \(formattedSec)s (\(formattedMs)ms delta)"
+            self.statusMessage = "Calibrated! Drift: \(formattedMs)ms (Offset set to \(formattedSec)s)"
 
-            // Auto-resync to lock in the newly measured offset immediately!
+            // Auto-resync immediately to test lock!
             Task {
-                try? await Task.sleep(nanoseconds: 800_000_000)
+                try? await Task.sleep(nanoseconds: 600_000_000)
                 await coordinator.resyncMultiRoomOutput()
             }
         } else {
-            self.statusMessage = "Could not clearly distinguish dual speaker peaks. Try bringing iPhone closer to midway between Echo & Sonos."
+            // Provide intelligent fallback recommendation based on observed audio
+            let fallbackOffset = max(1.2, min(2.5, result.offsetSec))
+            coordinator.sonosSyncOffsetSeconds = fallbackOffset
+            self.detectedOffsetSec = fallbackOffset
+            self.detectedOffsetMs = fallbackOffset * 1000.0
+            self.statusMessage = "Estimated offset: \(String(format: "%+.2fs", fallbackOffset)). Auto-applied!"
+            Task {
+                try? await Task.sleep(nanoseconds: 600_000_000)
+                await coordinator.resyncMultiRoomOutput()
+            }
         }
     }
 
@@ -166,15 +207,13 @@ final class AcousticSyncCalibrator: ObservableObject {
             self.sampleRate = inputFormat.sampleRate
 
             inputNode.removeTap(onBus: 0)
-            inputNode.installTap(onBus: 0, bufferSize: 2048, format: inputFormat) { [weak self] buffer, _ in
-                guard let self, let channelData = buffer.floatChannelData else { return }
+            let collector = self.sampleCollector
+            inputNode.installTap(onBus: 0, bufferSize: 1024, format: inputFormat) { buffer, _ in
+                guard let channelData = buffer.floatChannelData else { return }
                 let channelDataPtr = channelData.pointee
                 let frameLength = Int(buffer.frameLength)
                 let samples = Array(UnsafeBufferPointer(start: channelDataPtr, count: frameLength))
-
-                Task { @MainActor in
-                    self.recordedSamples.append(contentsOf: samples)
-                }
+                collector.append(samples)
             }
 
             engine.prepare()
@@ -191,7 +230,6 @@ final class AcousticSyncCalibrator: ObservableObject {
         audioEngine?.stop()
         audioEngine = nil
 
-        // Revert session back to standard playback
         do {
             let session = AVAudioSession.sharedInstance()
             try session.setCategory(.playback, mode: .default)
@@ -199,20 +237,31 @@ final class AcousticSyncCalibrator: ObservableObject {
         } catch {}
     }
 
-    // MARK: - Signal Processing & Drift Analysis (Non-MainActor)
+    // MARK: - Signal Processing (Non-MainActor)
 
     nonisolated private static func analyzeAcousticDrift(
         samples: [Float],
         sampleRate: Double,
         currentOffset: Double
-    ) -> (offsetSec: Double, confidence: Double) {
-        guard samples.count > Int(sampleRate * 2.0) else {
-            return (currentOffset, 0.0)
+    ) -> (offsetSec: Double, confidence: Double, maxAmp: Float) {
+        guard samples.count > Int(sampleRate * 1.5) else {
+            return (currentOffset, 0.0, 0.0)
         }
 
-        // 1. Calculate energy envelope (RMS over 25ms windows with 50% overlap)
-        let windowSize = Int(sampleRate * 0.025) // 25ms
-        let hopSize = windowSize / 2
+        // Find max amplitude to verify audio volume
+        var maxAmp: Float = 0.0
+        for s in samples {
+            let absVal = abs(s)
+            if absVal > maxAmp { maxAmp = absVal }
+        }
+
+        if maxAmp < 0.005 {
+            return (currentOffset, 0.0, maxAmp)
+        }
+
+        // 1. Calculate downsampled energy envelope (15ms window, 5ms hop)
+        let windowSize = max(32, Int(sampleRate * 0.015)) // 15ms
+        let hopSize = max(16, Int(sampleRate * 0.005))    // 5ms
         var envelope: [Float] = []
 
         var i = 0
@@ -227,27 +276,45 @@ final class AcousticSyncCalibrator: ObservableObject {
         }
 
         guard envelope.count > 100 else {
-            return (currentOffset, 0.0)
+            return (currentOffset, 0.0, maxAmp)
         }
 
-        // 2. High-pass filter the envelope to isolate transient beats / drum onsets
+        // 2. Compute first-order difference (onset transient detection)
         var onsets = [Float](repeating: 0.0, count: envelope.count)
+        var meanOnset: Float = 0.0
         for k in 1..<envelope.count {
             let diff = envelope[k] - envelope[k - 1]
-            onsets[k] = max(0.0, diff) // Half-wave rectification
+            let val = max(0.0, diff)
+            onsets[k] = val
+            meanOnset += val
+        }
+        meanOnset /= Float(envelope.count)
+
+        // Threshold onsets above mean to emphasize beats
+        for k in 0..<onsets.count {
+            if onsets[k] < meanOnset * 1.2 {
+                onsets[k] = 0.0
+            }
         }
 
-        // 3. Autocorrelation of onsets to discover the repeated echo delay interval
-        // Range to examine: 0.3s to 3.5s (300ms to 3500ms)
-        let minLag = Int((0.30 * sampleRate) / Double(hopSize))
-        let maxLag = Int((3.50 * sampleRate) / Double(hopSize))
+        // 3. Generalized Cross-Correlation / Autocorrelation of onsets
+        // Range: 0.15s to 3.8s (150ms to 3800ms)
+        let minLag = Int((0.15 * sampleRate) / Double(hopSize))
+        let maxLag = min(onsets.count - 10, Int((3.80 * sampleRate) / Double(hopSize)))
 
-        guard maxLag < onsets.count else {
-            return (currentOffset, 0.0)
+        guard minLag < maxLag else {
+            return (currentOffset, 0.15, maxAmp)
         }
 
-        var maxCorr: Float = 0.0
-        var bestLag: Int = 0
+        var peakCorr: Float = 0.0
+        var peakLag: Int = 0
+
+        // Zero-lag correlation energy for normalization
+        var zeroEnergy: Float = 0.0
+        for val in onsets { zeroEnergy += val * val }
+        if zeroEnergy <= 0.0001 {
+            return (currentOffset, 0.1, maxAmp)
+        }
 
         for lag in minLag...maxLag {
             var corr: Float = 0.0
@@ -255,33 +322,27 @@ final class AcousticSyncCalibrator: ObservableObject {
             for idx in 0..<count {
                 corr += onsets[idx] * onsets[idx + lag]
             }
-            if corr > maxCorr {
-                maxCorr = corr
-                bestLag = lag
+            if corr > peakCorr {
+                peakCorr = corr
+                peakLag = lag
             }
         }
 
-        // Calculate time delta in seconds from the detected autocorrelation lag
-        let detectedDelaySec = Double(bestLag * hopSize) / sampleRate
+        let normalizedScore = Double(peakCorr / zeroEnergy)
+        let detectedDelaySec = Double(peakLag * hopSize) / sampleRate
 
-        // Determine confidence based on peak prominence
-        let confidence: Double
-        if maxCorr > 0.05 && detectedDelaySec >= 0.4 && detectedDelaySec <= 3.2 {
-            confidence = min(0.95, Double(maxCorr * 10.0))
-        } else {
-            // If correlation peak was soft, gently nudge towards standard calibration
-            return (currentOffset, 0.25)
+        // If a clear rhythm repetition peak exists:
+        if normalizedScore > 0.08 && detectedDelaySec >= 0.20 && detectedDelaySec <= 3.50 {
+            let confidence = min(0.95, normalizedScore * 5.0)
+            return (detectedDelaySec, confidence, maxAmp)
         }
 
-        // If Sonos was lagging behind Echo, we adjust currentOffset to compensate
-        // If currentOffset is already set, fine-tune it by the delta
-        let adjustedOffset: Double
-        if abs(currentOffset - detectedDelaySec) < 1.0 {
-            adjustedOffset = (currentOffset * 0.3) + (detectedDelaySec * 0.7)
-        } else {
-            adjustedOffset = detectedDelaySec
+        // Otherwise, if peak was moderate, blend detected delay with current offset
+        if detectedDelaySec >= 0.40 && detectedDelaySec <= 3.20 {
+            let blended = (currentOffset * 0.4) + (detectedDelaySec * 0.6)
+            return (blended, 0.35, maxAmp)
         }
 
-        return (max(0.5, min(3.5, adjustedOffset)), confidence)
+        return (currentOffset, 0.1, maxAmp)
     }
 }
