@@ -24,6 +24,8 @@
 	<true/>
 	<key>NSAppleMusicUsageDescription</key>
 	<string>Alexa Music Connect uses Apple Music to browse your library, playlists, and cast tracks directly to your Amazon Echo speakers and speaker groups.</string>
+	<key>NSMicrophoneUsageDescription</key>
+	<string>Alexa Music Connect uses your microphone for acoustic sync calibration between your Amazon Echo and Sonos speakers.</string>
 	<key>UIApplicationSceneManifest</key>
 	<dict>
 		<key>UIApplicationSupportsMultipleScenes</key>

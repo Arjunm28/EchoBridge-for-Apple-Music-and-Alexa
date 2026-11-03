@@ -274,6 +274,10 @@ struct SpeakerPickerSheet: View {
                 // 5. Progressive Disclosure: Collapsible Advanced Sync & Audio Settings
                 Section {
                     DisclosureGroup(isExpanded: $showAdvancedSyncSettings) {
+                        // Acoustic Microphone Calibration Wizard Card
+                        AcousticCalibrationCard()
+                            .padding(.vertical, 4)
+
                         // A. Sonos Head-Start Sync Offset
                         VStack(alignment: .leading, spacing: 8) {
                             HStack {
@@ -609,5 +613,89 @@ struct SpeakerPickerSheet: View {
             .contentShape(Rectangle())
         }
         .disabled(!isOnline)
+    }
+}
+
+// MARK: - Acoustic Microphone Sync Calibration View
+
+struct AcousticCalibrationCard: View {
+    @ObservedObject var calibrator = AcousticSyncCalibrator.shared
+    @ObservedObject var coordinator = PlaybackCoordinator.shared
+    @ObservedObject var alexaClient = AlexaAPIClient.shared
+
+    var body: some View {
+        VStack(alignment: .leading, spacing: 10) {
+            HStack(spacing: 8) {
+                Image(systemName: "waveform.badge.mic")
+                    .font(.headline)
+                    .foregroundStyle(.pink)
+                Text("Microphone Auto-Sync (TrueSync)")
+                    .font(.subheadline.weight(.semibold))
+                Spacer()
+                if calibrator.isCalibrating {
+                    ProgressView()
+                        .controlSize(.small)
+                }
+            }
+
+            Text("Hold your iPhone midway between your Echo and Sonos speaker. We'll listen to the beat drift and automatically calculate the exact millisecond offset.")
+                .font(.caption2)
+                .foregroundStyle(.secondary)
+
+            if calibrator.isCalibrating {
+                VStack(spacing: 6) {
+                    ProgressView(value: calibrator.calibrationProgress, total: 1.0)
+                        .tint(.pink)
+                    Text(calibrator.statusMessage)
+                        .font(.caption2.weight(.medium))
+                        .foregroundStyle(.pink)
+                }
+                .padding(.vertical, 4)
+            } else {
+                HStack {
+                    VStack(alignment: .leading, spacing: 2) {
+                        Text(calibrator.statusMessage)
+                            .font(.caption2)
+                            .foregroundStyle(calibrator.confidenceScore > 0 ? .green : .secondary)
+
+                        if let ms = calibrator.detectedOffsetMs {
+                            Text("Measured lag: \(String(format: "%.0f ms", ms))")
+                                .font(.system(size: 11, weight: .bold, design: .monospaced))
+                                .foregroundStyle(.primary)
+                        }
+                    }
+
+                    Spacer()
+
+                    Button {
+                        if case .alexaDevice(let target) = coordinator.selectedTarget {
+                            let sonosTarget = coordinator.activeCompanionDevices.first
+                            Task {
+                                await calibrator.startCalibration(
+                                    targetEcho: target,
+                                    targetSonos: sonosTarget
+                                )
+                            }
+                        }
+                    } label: {
+                        HStack(spacing: 5) {
+                            Image(systemName: "mic.fill")
+                            Text("Calibrate via Mic")
+                        }
+                        .font(.caption.weight(.bold))
+                        .padding(.horizontal, 10)
+                        .padding(.vertical, 6)
+                        .background(Color.pink.opacity(0.18))
+                        .foregroundStyle(.pink)
+                        .clipShape(Capsule())
+                    }
+                    .buttonStyle(.plain)
+                    .disabled(!coordinator.selectedTarget.isAlexaTarget)
+                }
+            }
+        }
+        .padding(12)
+        .background(Color(.secondarySystemBackground))
+        .clipShape(RoundedRectangle(cornerRadius: 12, style: .continuous))
     }
 }

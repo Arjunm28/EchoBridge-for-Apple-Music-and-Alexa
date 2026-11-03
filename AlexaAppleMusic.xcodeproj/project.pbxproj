@@ -15,6 +15,7 @@
 		A10000062600000100000001 /* AppleMusicManager.swift in Sources */ = {isa = PBXBuildFile; fileRef = A20000062600000100000001 /* AppleMusicManager.swift */; };
 		A10000072600000100000001 /* PlaybackCoordinator.swift in Sources */ = {isa = PBXBuildFile; fileRef = A20000072600000100000001 /* PlaybackCoordinator.swift */; };
 		A10000102600000100000001 /* SonosLocalUPnPClient.swift in Sources */ = {isa = PBXBuildFile; fileRef = A20000102600000100000001 /* SonosLocalUPnPClient.swift */; };
+		A10000112600000100000001 /* AcousticSyncCalibrator.swift in Sources */ = {isa = PBXBuildFile; fileRef = A20000112600000100000001 /* AcousticSyncCalibrator.swift */; };
 		A10000082600000100000001 /* ContentView.swift in Sources */ = {isa = PBXBuildFile; fileRef = A20000082600000100000001 /* ContentView.swift */; };
 		A10000092600000100000001 /* AlexaLoginWebView.swift in Sources */ = {isa = PBXBuildFile; fileRef = A20000092600000100000001 /* AlexaLoginWebView.swift */; };
 		A100000A2600000100000001 /* SpeakerPickerSheet.swift in Sources */ = {isa = PBXBuildFile; fileRef = A200000A2600000100000001 /* SpeakerPickerSheet.swift */; };
@@ -34,6 +35,7 @@
 		A20000062600000100000001 /* AppleMusicManager.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = AppleMusicManager.swift; sourceTree = "<group>"; };
 		A20000072600000100000001 /* PlaybackCoordinator.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = PlaybackCoordinator.swift; sourceTree = "<group>"; };
 		A20000102600000100000001 /* SonosLocalUPnPClient.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = SonosLocalUPnPClient.swift; sourceTree = "<group>"; };
+		A20000112600000100000001 /* AcousticSyncCalibrator.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = AcousticSyncCalibrator.swift; sourceTree = "<group>"; };
 		A20000082600000100000001 /* ContentView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ContentView.swift; sourceTree = "<group>"; };
 		A20000092600000100000001 /* AlexaLoginWebView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = AlexaLoginWebView.swift; sourceTree = "<group>"; };
 		A200000A2600000100000001 /* SpeakerPickerSheet.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = SpeakerPickerSheet.swift; sourceTree = "<group>"; };
@@ -93,6 +95,7 @@
 				A20000062600000100000001 /* AppleMusicManager.swift */,
 				A20000072600000100000001 /* PlaybackCoordinator.swift */,
 				A20000102600000100000001 /* SonosLocalUPnPClient.swift */,
+				A20000112600000100000001 /* AcousticSyncCalibrator.swift */,
 			);
 			path = Services;
 			sourceTree = "<group>";
@@ -195,6 +198,7 @@
 				A10000062600000100000001 /* AppleMusicManager.swift in Sources */,
 				A10000072600000100000001 /* PlaybackCoordinator.swift in Sources */,
 				A10000102600000100000001 /* SonosLocalUPnPClient.swift in Sources */,
+				A10000112600000100000001 /* AcousticSyncCalibrator.swift in Sources */,
 				A10000082600000100000001 /* ContentView.swift in Sources */,
 				A10000092600000100000001 /* AlexaLoginWebView.swift in Sources */,
 				A100000A2600000100000001 /* SpeakerPickerSheet.swift in Sources */,
