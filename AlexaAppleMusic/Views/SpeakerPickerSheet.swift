@@ -14,30 +14,33 @@ struct SystemAirPlayRouteButton: UIViewRepresentable {
 }
 
 struct SpeakerPickerSheet: View {
+    var isEmbeddedInTab: Bool = false
+
     @ObservedObject var authManager = AlexaAuthManager.shared
     @ObservedObject var alexaClient = AlexaAPIClient.shared
     @ObservedObject var coordinator = PlaybackCoordinator.shared
 
     @Environment(\.dismiss) private var dismiss
     @State private var showLoginSheet = false
+    @State private var showAdvancedSyncSettings = false
 
     var body: some View {
         NavigationStack {
             List {
-                // Active Target Header Card + Live Echo Remote Controls
+                // 1. Active Output + Master & Per-Room Volumes
                 Section {
                     HStack(spacing: 14) {
                         ZStack {
                             Circle()
                                 .fill(coordinator.selectedTarget.isAlexaTarget ? Color.green.opacity(0.2) : Color.pink.opacity(0.2))
-                                .frame(width: 48, height: 48)
+                                .frame(width: 46, height: 46)
                             Image(systemName: coordinator.selectedTarget.iconName)
                                 .font(.title3.weight(.semibold))
                                 .foregroundStyle(coordinator.selectedTarget.isAlexaTarget ? .green : .pink)
                         }
 
                         VStack(alignment: .leading, spacing: 3) {
-                            Text("Current Output")
+                            Text("Active Output")
                                 .font(.caption)
                                 .foregroundStyle(.secondary)
                             HStack(spacing: 6) {
@@ -60,11 +63,11 @@ struct SpeakerPickerSheet: View {
                             } else if coordinator.selectedTarget.isAlexaTarget {
                                 Text("Alexa Cloud Connect • \(coordinator.providerPreference.rawValue)")
                                     .font(.caption2)
-                                    .foregroundStyle(.green)
+                                    .foregroundStyle(.secondary)
                             } else {
                                 Text("Local iPhone / AirPlay 2 Output")
                                     .font(.caption2)
-                                    .foregroundStyle(.pink)
+                                    .foregroundStyle(.secondary)
                             }
                         }
 
@@ -73,72 +76,34 @@ struct SpeakerPickerSheet: View {
                         if coordinator.isTransferring {
                             ProgressView()
                         } else if coordinator.isPlaying {
-                            Image(systemName: "waveform")
-                                .symbolEffect(.variableColor.iterative, isActive: coordinator.isPlaying)
-                                .foregroundStyle(coordinator.selectedTarget.isAlexaTarget ? .green : .pink)
+                            Button(role: .destructive) {
+                                Task { await coordinator.stopAllPlayback() }
+                            } label: {
+                                Label("Stop", systemImage: "stop.fill")
+                                    .font(.caption.weight(.bold))
+                                    .padding(.horizontal, 10)
+                                    .padding(.vertical, 6)
+                                    .background(Color.red.opacity(0.15))
+                                    .foregroundStyle(.red)
+                                    .clipShape(Capsule())
+                            }
+                            .buttonStyle(.plain)
                         }
                     }
-                    .padding(.vertical, 4)
+                    .padding(.vertical, 2)
 
-                    // Quick Hardware-Style Echo Remote Strip
-                    HStack(spacing: 10) {
-                        Button(role: .destructive) {
-                            Task { await coordinator.stopAllPlayback() }
-                        } label: {
-                            Label("Stop", systemImage: "stop.fill")
-                                .font(.caption.weight(.bold))
-                                .frame(maxWidth: .infinity)
-                                .padding(.vertical, 8)
-                                .background(Color.red.opacity(0.15))
-                                .foregroundStyle(.red)
-                                .clipShape(RoundedRectangle(cornerRadius: 10))
-                        }
-                        .buttonStyle(.plain)
-
-                        Button {
-                            Task { await coordinator.togglePlayPause() }
-                        } label: {
-                            Label(coordinator.isPlaying ? "Pause" : "Resume", systemImage: coordinator.isPlaying ? "pause.fill" : "play.fill")
-                                .font(.caption.weight(.bold))
-                                .frame(maxWidth: .infinity)
-                                .padding(.vertical, 8)
-                                .background(Color(.tertiarySystemFill))
-                                .clipShape(RoundedRectangle(cornerRadius: 10))
-                        }
-                        .buttonStyle(.plain)
-
-                        Button {
-                            Task { await coordinator.skipNext() }
-                        } label: {
-                            Label("Next", systemImage: "forward.fill")
-                                .font(.caption.weight(.bold))
-                                .frame(maxWidth: .infinity)
-                                .padding(.vertical, 8)
-                                .background(Color(.tertiarySystemFill))
-                                .clipShape(RoundedRectangle(cornerRadius: 10))
-                        }
-                        .buttonStyle(.plain)
-                    }
-                    .padding(.vertical, 4)
-
-                    // Master Volume Control
+                    // Master Volume + Per-Room Individual Volume Sliders
                     if coordinator.selectedTarget.isAlexaTarget {
                         VStack(alignment: .leading, spacing: 10) {
                             HStack(spacing: 12) {
-                                Button {
-                                    Task { await coordinator.stepVolume(by: -10) }
-                                } label: {
-                                    Image(systemName: "speaker.minus.fill")
-                                        .foregroundStyle(.secondary)
-                                }
-                                .buttonStyle(.plain)
+                                Image(systemName: "speaker.fill")
+                                    .font(.caption)
+                                    .foregroundStyle(.secondary)
 
                                 Slider(
                                     value: Binding(
                                         get: { coordinator.volumeLevel },
-                                        set: { newVal in
-                                            coordinator.volumeLevel = newVal
-                                        }
+                                        set: { coordinator.volumeLevel = $0 }
                                     ),
                                     in: 0...100,
                                     step: 1
@@ -151,13 +116,9 @@ struct SpeakerPickerSheet: View {
                                 }
                                 .tint(.green)
 
-                                Button {
-                                    Task { await coordinator.stepVolume(by: 10) }
-                                } label: {
-                                    Image(systemName: "speaker.plus.fill")
-                                        .foregroundStyle(.secondary)
-                                }
-                                .buttonStyle(.plain)
+                                Image(systemName: "speaker.wave.3.fill")
+                                    .font(.caption)
+                                    .foregroundStyle(.secondary)
 
                                 Text("\(Int(coordinator.volumeLevel))%")
                                     .font(.caption.monospacedDigit().weight(.semibold))
@@ -165,7 +126,6 @@ struct SpeakerPickerSheet: View {
                                     .frame(width: 38, alignment: .trailing)
                             }
 
-                            // Per-Room Individual Volume Sliders (Group Members + Linked Sonos Speakers)
                             if case .alexaDevice(let group) = coordinator.selectedTarget {
                                 let baseMembers = group.isSpeakerGroup ? alexaClient.memberDevices(for: group) : [group]
                                 let linkedExtras = coordinator.activeCompanionDevices.filter { extra in
@@ -175,7 +135,7 @@ struct SpeakerPickerSheet: View {
 
                                 if allRoomSpeakers.count > 1 {
                                     Divider()
-                                    Text("Individual Speaker Volumes (Multi-Room + Linked Sonos)")
+                                    Text("Room Volumes")
                                         .font(.caption2.weight(.semibold))
                                         .foregroundStyle(.secondary)
 
@@ -219,7 +179,7 @@ struct SpeakerPickerSheet: View {
                     }
                 }
 
-                // Prominent Sign-In Card when not authenticated or in Demo Mode
+                // 2. Sign-In Card when not authenticated or in Demo Mode
                 if !authManager.isAuthenticated || authManager.isDemoMode {
                     Section {
                         HStack(spacing: 12) {
@@ -233,19 +193,17 @@ struct SpeakerPickerSheet: View {
                             VStack(alignment: .leading, spacing: 2) {
                                 Text(authManager.isDemoMode ? "Demo Speakers Active" : "Connect Amazon Alexa")
                                     .font(.subheadline.weight(.semibold))
-                                Text("Sign in to load your real Echo speakers & Multi-Room groups")
+                                Text("Sign in to load your Echo speakers & Multi-Room groups")
                                     .font(.caption2)
                                     .foregroundStyle(.secondary)
                             }
 
                             Spacer()
 
-                            Button {
+                            Button("Sign In") {
                                 showLoginSheet = true
-                            } label: {
-                                Text("Sign In")
-                                    .font(.caption.weight(.bold))
                             }
+                            .font(.caption.weight(.bold))
                             .buttonStyle(.borderedProminent)
                             .tint(.blue)
                         }
@@ -253,7 +211,7 @@ struct SpeakerPickerSheet: View {
                 }
 
                 if authManager.isAuthenticated {
-                    // Multi-Room Speaker Groups Section
+                    // 3. Multi-Room Speaker Groups
                     Section {
                         if alexaClient.speakerGroups.isEmpty && !alexaClient.isLoadingDevices {
                             Text("No Multi-Room speaker groups found in your Alexa account.")
@@ -277,22 +235,10 @@ struct SpeakerPickerSheet: View {
                             }
                         }
                     } header: {
-                        HStack {
-                            Label("Speaker Groups (Multi-Room)", systemImage: "speaker.wave.2.bubble.left.fill")
-                            Spacer()
-                            if authManager.isDemoMode {
-                                Text("DEMO")
-                                    .font(.caption2.weight(.bold))
-                                    .padding(.horizontal, 6)
-                                    .padding(.vertical, 2)
-                                    .background(Color.orange.opacity(0.2))
-                                    .foregroundStyle(.orange)
-                                    .clipShape(Capsule())
-                            }
-                        }
+                        Text("Multi-Room Speaker Groups")
                     }
 
-                    // Individual Echo & Sonos Speakers Section (with Multi-Room Companion Link button!)
+                    // 4. Individual Echo & Sonos Speakers
                     Section {
                         if alexaClient.isLoadingDevices {
                             HStack(spacing: 12) {
@@ -302,7 +248,7 @@ struct SpeakerPickerSheet: View {
                                     .foregroundStyle(.secondary)
                             }
                         } else if alexaClient.individualSpeakers.isEmpty {
-                            Text("No Echo or Sonos speakers found. Pull to refresh or verify your Amazon region.")
+                            Text("No speakers found. Pull to refresh.")
                                 .font(.caption)
                                 .foregroundStyle(.secondary)
                         } else {
@@ -310,193 +256,146 @@ struct SpeakerPickerSheet: View {
                                 individualSpeakerWithLinkRow(speaker)
                             }
                         }
+
+                        speakerRow(
+                            target: .localDevice,
+                            title: "This iPhone / AirPlay 2",
+                            subtitle: "Direct local or AirPlay 2 audio output",
+                            icon: "airplayaudio",
+                            isOnline: true
+                        )
                     } header: {
-                        Text("Individual Echo & Sonos Speakers")
+                        Text("Individual Speakers")
                     } footer: {
-                        Text("Tap '+' on any speaker (such as Sonos Era 100) to link it as a Multi-Room Companion so it automatically starts playing whenever you play on 'Everywhere'.")
+                        Text("Tap '+' on a Sonos or extra room speaker to link it so it plays automatically with 'Everywhere'.")
                     }
                 }
 
-                // Sonos Era 100 & Hybrid Multi-Room Sync Calibration Section
+                // 5. Progressive Disclosure: Collapsible Advanced Sync & Audio Settings
                 Section {
-                    // 1. Sonos Head-Start / Latency Compensation Slider
-                    VStack(alignment: .leading, spacing: 8) {
-                        HStack {
-                            Label("Sonos Head-Start Sync Offset", systemImage: "timer")
-                                .font(.subheadline.weight(.semibold))
-                            Spacer()
-                            Text(String(format: "%+.1f sec", coordinator.sonosSyncOffsetSeconds))
-                                .font(.caption.monospacedDigit().weight(.bold))
-                                .padding(.horizontal, 8)
-                                .padding(.vertical, 3)
-                                .background(Color.pink.opacity(0.18))
-                                .foregroundStyle(.pink)
-                                .clipShape(Capsule())
-                        }
+                    DisclosureGroup(isExpanded: $showAdvancedSyncSettings) {
+                        // A. Sonos Head-Start Sync Offset
+                        VStack(alignment: .leading, spacing: 8) {
+                            HStack {
+                                Label("Sonos Head-Start Offset", systemImage: "timer")
+                                    .font(.subheadline.weight(.medium))
+                                Spacer()
+                                Text(String(format: "%+.1f sec", coordinator.sonosSyncOffsetSeconds))
+                                    .font(.caption.monospacedDigit().weight(.bold))
+                                    .padding(.horizontal, 8)
+                                    .padding(.vertical, 3)
+                                    .background(Color.pink.opacity(0.18))
+                                    .foregroundStyle(.pink)
+                                    .clipShape(Capsule())
+                            }
 
-                        Slider(
-                            value: $coordinator.sonosSyncOffsetSeconds,
-                            in: -2.0...4.0,
-                            step: 0.1
-                        )
-                        .tint(.pink)
+                            Slider(
+                                value: $coordinator.sonosSyncOffsetSeconds,
+                                in: -2.0...4.0,
+                                step: 0.1
+                            )
+                            .tint(.pink)
 
-                        HStack {
-                            Text("Delay Sonos (-2s)")
-                            Spacer()
-                            Text("0.0s")
-                            Spacer()
-                            Text("Start Sonos Earlier (+4s)")
-                        }
-                        .font(.system(size: 10))
-                        .foregroundStyle(.secondary)
-
-                        HStack(spacing: 8) {
-                            ForEach([1.0, 1.5, 1.8, 2.2, 2.8], id: \.self) { preset in
+                            HStack(spacing: 8) {
+                                ForEach([1.0, 1.5, 1.8, 2.2, 2.8], id: \.self) { preset in
+                                    Button {
+                                        coordinator.sonosSyncOffsetSeconds = preset
+                                    } label: {
+                                        Text(String(format: "+%.1fs", preset))
+                                            .font(.caption2.weight(.semibold))
+                                            .padding(.horizontal, 8)
+                                            .padding(.vertical, 5)
+                                            .background(
+                                                abs(coordinator.sonosSyncOffsetSeconds - preset) < 0.05
+                                                    ? Color.pink
+                                                    : Color(.tertiarySystemFill)
+                                            )
+                                            .foregroundStyle(abs(coordinator.sonosSyncOffsetSeconds - preset) < 0.05 ? .white : .primary)
+                                            .clipShape(Capsule())
+                                    }
+                                    .buttonStyle(.plain)
+                                }
+                                Spacer()
                                 Button {
-                                    coordinator.sonosSyncOffsetSeconds = preset
+                                    Task { await coordinator.resyncMultiRoomOutput() }
                                 } label: {
-                                    Text(String(format: "+%.1fs", preset))
-                                        .font(.caption2.weight(.semibold))
-                                        .padding(.horizontal, 8)
+                                    Label("Resync", systemImage: "arrow.triangle.2.circlepath")
+                                        .font(.caption2.weight(.bold))
+                                        .padding(.horizontal, 10)
                                         .padding(.vertical, 5)
-                                        .background(
-                                             abs(coordinator.sonosSyncOffsetSeconds - preset) < 0.05
-                                                ? Color.pink
-                                                : Color(.tertiarySystemFill)
-                                        )
-                                        .foregroundStyle(abs(coordinator.sonosSyncOffsetSeconds - preset) < 0.05 ? .white : .primary)
+                                        .background(Color.green.opacity(0.2))
+                                        .foregroundStyle(.green)
                                         .clipShape(Capsule())
                                 }
                                 .buttonStyle(.plain)
                             }
-                            Spacer()
-                            Button {
-                                Task { await coordinator.resyncMultiRoomOutput() }
-                            } label: {
-                                Label("Apply & Resync", systemImage: "arrow.triangle.2.circlepath")
-                                    .font(.caption2.weight(.bold))
-                                    .padding(.horizontal, 10)
-                                    .padding(.vertical, 5)
-                                    .background(Color.green.opacity(0.2))
-                                    .foregroundStyle(.green)
-                                    .clipShape(Capsule())
-                            }
-                            .buttonStyle(.plain)
                         }
-                    }
-                    .padding(.vertical, 4)
+                        .padding(.vertical, 4)
 
-                    // 2. AirPlay 2 Option + Micro Beat Nudge Buttons
-                    HStack {
-                        VStack(alignment: .leading, spacing: 2) {
-                            Label("Select Sonos Era 100 via AirPlay 2", systemImage: "airplayaudio")
-                                .font(.subheadline.weight(.semibold))
-                            Text("Or use AirPlay 2 with instant ±0.2s beat alignment")
-                                .font(.caption2)
+                        // B. Alexa Catalog Resolver Preference
+                        VStack(alignment: .leading, spacing: 6) {
+                            Text("Music Catalog Resolver")
+                                .font(.caption.weight(.semibold))
                                 .foregroundStyle(.secondary)
-                        }
-                        Spacer()
-                        SystemAirPlayRouteButton()
-                            .frame(width: 38, height: 38)
-                    }
-
-                    Toggle(isOn: $coordinator.bridgeAirPlayWithAlexa) {
-                        VStack(alignment: .leading, spacing: 2) {
-                            Text("Dual-Play: AirPlay 2 (Sonos) + Alexa Group")
-                                .font(.subheadline.weight(.medium))
-                            Text("Streams to Sonos via AirPlay 2 simultaneously with Everywhere")
-                                .font(.caption2)
-                                .foregroundStyle(.secondary)
-                        }
-                    }
-                    .tint(.pink)
-
-                    if coordinator.bridgeAirPlayWithAlexa {
-                        HStack(spacing: 10) {
-                            Text("Fine Beat Nudge (AirPlay):")
-                                .font(.caption.weight(.medium))
-                                .foregroundStyle(.secondary)
-                            Spacer()
-                            Button("-0.25s") {
-                                coordinator.nudgeLocalAirPlayTiming(by: -0.25)
-                            }
-                            .font(.caption2.weight(.bold))
-                            .buttonStyle(.bordered)
-
-                            Button("+0.25s") {
-                                coordinator.nudgeLocalAirPlayTiming(by: 0.25)
-                            }
-                            .font(.caption2.weight(.bold))
-                            .buttonStyle(.bordered)
-                        }
-                    }
-                } header: {
-                    Label("Sonos Era 100 Delay Compensation & Bridge", systemImage: "hifispeaker.and.homepodmini.fill")
-                } footer: {
-                    Text("Because Sonos Era 100 buffers through Sonos Cloud after receiving Alexa's command, giving Sonos a +1.5s to +2.2s Head-Start triggers Sonos FIRST, waits for it to buffer, and then triggers 'Everywhere' so they start on the same beat.")
-                }
-
-                // Music Catalog Resolver Preference
-                Section {
-                    Picker("Alexa Catalog Resolver", selection: $coordinator.providerPreference) {
-                        ForEach(AlexaMusicProviderPreference.allCases) { pref in
-                            Text(pref.rawValue).tag(pref)
-                        }
-                    }
-                    .pickerStyle(.segmented)
-
-                    Toggle("Auto-Advance Playlist Queue", isOn: $coordinator.isAutoAdvanceEnabled)
-                        .font(.subheadline)
-                } header: {
-                    Text("Playback Engine & Regional Song Matching")
-                }
-
-                // Direct iPhone / AirPlay 2 Standalone Mode
-                Section("Standalone iPhone / AirPlay 2 Mode") {
-                    speakerRow(
-                        target: .localDevice,
-                        title: "iPhone / AirPlay 2 (Sonos Era 100)",
-                        subtitle: "Streams lossless Apple Music directly from your iPhone",
-                        icon: "airplayaudio",
-                        isOnline: true
-                    )
-                }
-
-                if !authManager.isAuthenticated {
-                    Section("Amazon Alexa Account") {
-                        VStack(alignment: .leading, spacing: 12) {
-                            Text("Connect your Amazon account to discover all your Echo speakers, Sonos Alexa speakers, and Multi-Room speaker groups.")
-                                .font(.subheadline)
-                                .foregroundStyle(.secondary)
-
-                            HStack(spacing: 12) {
-                                Button {
-                                    showLoginSheet = true
-                                } label: {
-                                    Label("Sign in with Amazon", systemImage: "person.badge.key.fill")
-                                        .font(.subheadline.weight(.semibold))
-                                        .frame(maxWidth: .infinity)
+                            Picker("Alexa Catalog Resolver", selection: $coordinator.providerPreference) {
+                                ForEach(AlexaMusicProviderPreference.allCases) { pref in
+                                    Text(pref.rawValue).tag(pref)
                                 }
-                                .buttonStyle(.borderedProminent)
-                                .tint(.blue)
+                            }
+                            .pickerStyle(.segmented)
+                        }
+                        .padding(.vertical, 2)
 
-                                Button {
-                                    authManager.enableDemoMode()
-                                    Task {
-                                        await alexaClient.fetchDevices()
-                                    }
-                                } label: {
-                                    Text("Try Demo Speakers")
-                                        .font(.subheadline.weight(.medium))
+                        // C. AirPlay 2 Dual-Play Bridge
+                        Toggle(isOn: $coordinator.bridgeAirPlayWithAlexa) {
+                            VStack(alignment: .leading, spacing: 2) {
+                                Text("Dual-Play: AirPlay 2 + Alexa Group")
+                                    .font(.subheadline)
+                                Text("Stream locally via AirPlay 2 alongside Alexa")
+                                    .font(.caption2)
+                                    .foregroundStyle(.secondary)
+                            }
+                        }
+                        .tint(.pink)
+
+                        if coordinator.bridgeAirPlayWithAlexa {
+                            HStack {
+                                Text("AirPlay Route & Beat Nudge")
+                                    .font(.caption)
+                                    .foregroundStyle(.secondary)
+                                Spacer()
+                                SystemAirPlayRouteButton()
+                                    .frame(width: 34, height: 34)
+                                Button("-0.25s") {
+                                    coordinator.nudgeLocalAirPlayTiming(by: -0.25)
                                 }
+                                .font(.caption2.weight(.bold))
+                                .buttonStyle(.bordered)
+
+                                Button("+0.25s") {
+                                    coordinator.nudgeLocalAirPlayTiming(by: 0.25)
+                                }
+                                .font(.caption2.weight(.bold))
                                 .buttonStyle(.bordered)
                             }
                         }
-                        .padding(.vertical, 6)
+                    } label: {
+                        HStack(spacing: 10) {
+                            Image(systemName: "slider.horizontal.3")
+                                .foregroundStyle(.pink)
+                            VStack(alignment: .leading, spacing: 2) {
+                                Text("Sonos Sync & Advanced Audio")
+                                    .font(.subheadline.weight(.medium))
+                                Text("Sonos head-start (\(String(format: "%+.1fs", coordinator.sonosSyncOffsetSeconds))), \(coordinator.providerPreference.rawValue) resolver")
+                                    .font(.caption2)
+                                    .foregroundStyle(.secondary)
+                            }
+                        }
                     }
-                } else {
-                    // Account Management Footer
+                }
+
+                // 6. Account Management Footer
+                if authManager.isAuthenticated {
                     Section {
                         if authManager.isDemoMode {
                             Button {
@@ -516,14 +415,14 @@ struct SpeakerPickerSheet: View {
                     }
                 }
             }
-            .navigationTitle("Speakers & Sonos Sync")
-            .navigationBarTitleDisplayMode(.inline)
+            .navigationTitle("Speakers")
+            .navigationBarTitleDisplayMode(isEmbeddedInTab ? .large : .inline)
             .refreshable {
                 await alexaClient.fetchDevices()
             }
             .toolbar {
                 ToolbarItem(placement: .topBarLeading) {
-                    if authManager.isAuthenticated {
+                    if authManager.isAuthenticated && !isEmbeddedInTab {
                         Button {
                             Task {
                                 await alexaClient.fetchDevices()
@@ -534,10 +433,22 @@ struct SpeakerPickerSheet: View {
                     }
                 }
                 ToolbarItem(placement: .topBarTrailing) {
-                    Button("Done") {
-                        dismiss()
+                    if isEmbeddedInTab {
+                        if authManager.isAuthenticated {
+                            Button {
+                                Task {
+                                    await alexaClient.fetchDevices()
+                                }
+                            } label: {
+                                Image(systemName: "arrow.clockwise")
+                            }
+                        }
+                    } else {
+                        Button("Done") {
+                            dismiss()
+                        }
+                        .fontWeight(.semibold)
                     }
-                    .fontWeight(.semibold)
                 }
             }
             .sheet(isPresented: $showLoginSheet) {
@@ -567,29 +478,17 @@ struct SpeakerPickerSheet: View {
                     Image(systemName: speaker.sfSymbolName)
                         .font(.title3)
                         .foregroundStyle(isSelected ? .green : (speaker.isSonosOrThirdPartySpeaker ? .pink : (speaker.online ? .primary : .secondary)))
-                        .frame(width: 32)
+                        .frame(width: 30)
 
-                    VStack(alignment: .leading, spacing: 3) {
-                        HStack(spacing: 6) {
-                            Text(speaker.accountName)
-                                .font(.body.weight(isSelected ? .semibold : .regular))
-                                .foregroundStyle(isSelected ? .green : (speaker.online ? .primary : .secondary))
-
-                            if speaker.isSonosOrThirdPartySpeaker {
-                                Text("SONOS / AVS")
-                                    .font(.system(size: 9, weight: .bold))
-                                    .padding(.horizontal, 5)
-                                    .padding(.vertical, 2)
-                                    .background(Color.pink.opacity(0.18))
-                                    .foregroundStyle(.pink)
-                                    .clipShape(Capsule())
-                            }
-                        }
+                    VStack(alignment: .leading, spacing: 2) {
+                        Text(speaker.accountName)
+                            .font(.body.weight(isSelected ? .semibold : .regular))
+                            .foregroundStyle(isSelected ? .green : (speaker.online ? .primary : .secondary))
 
                         Text(
                             isLinkedCompanion
-                                ? "Linked (\(String(format: "%+.1fs", coordinator.sonosSyncOffsetSeconds)) head-start) • Plays with Everywhere"
-                                : (speaker.online ? "Online • Tap '+' to link with Multi-Room" : "Offline")
+                                ? "Linked with Everywhere (\(String(format: "%+.1fs", coordinator.sonosSyncOffsetSeconds)))"
+                                : (speaker.online ? "Online" : "Offline")
                         )
                         .font(.caption)
                         .foregroundStyle(isLinkedCompanion ? .pink : .secondary)
@@ -607,21 +506,10 @@ struct SpeakerPickerSheet: View {
             Button {
                 coordinator.toggleCompanionSpeaker(speaker)
             } label: {
-                HStack(spacing: 4) {
-                    Image(systemName: isLinkedCompanion ? "link.circle.fill" : "plus.circle")
-                        .font(.title3)
-                    if isLinkedCompanion {
-                        Text("Linked")
-                            .font(.caption2.weight(.bold))
-                    }
-                }
-                .foregroundStyle(isLinkedCompanion ? .pink : .secondary)
-                .padding(.horizontal, 8)
-                .padding(.vertical, 5)
-                .background(
-                    Capsule()
-                        .fill(isLinkedCompanion ? Color.pink.opacity(0.15) : Color(.tertiarySystemFill))
-                )
+                Image(systemName: isLinkedCompanion ? "link.circle.fill" : "plus.circle")
+                    .font(.title3)
+                    .foregroundStyle(isLinkedCompanion ? .pink : .secondary)
+                    .padding(4)
             }
             .buttonStyle(.plain)
 
@@ -646,23 +534,26 @@ struct SpeakerPickerSheet: View {
         Button {
             Task {
                 await coordinator.selectTarget(target)
+                if !isEmbeddedInTab {
+                    dismiss()
+                }
             }
         } label: {
             HStack(spacing: 14) {
                 Image(systemName: icon)
                     .font(.title3)
                     .foregroundStyle(isSelected ? .green : (isOnline ? .primary : .secondary))
-                    .frame(width: 32)
+                    .frame(width: 30)
 
-                VStack(alignment: .leading, spacing: 3) {
+                VStack(alignment: .leading, spacing: 2) {
                     Text(title)
                         .font(.body.weight(isSelected ? .semibold : .regular))
                         .foregroundStyle(isSelected ? .green : (isOnline ? .primary : .secondary))
 
-                    Text(subtitle)
+                    Text(isOnline ? subtitle : "Offline")
                         .font(.caption)
                         .foregroundStyle(.secondary)
-                        .lineLimit(2)
+                        .lineLimit(1)
                 }
 
                 Spacer()
@@ -671,15 +562,10 @@ struct SpeakerPickerSheet: View {
                     Image(systemName: "checkmark.circle.fill")
                         .foregroundStyle(.green)
                         .font(.title3)
-                } else if !isOnline {
-                    Text("Offline")
-                        .font(.caption2)
-                        .foregroundStyle(.secondary)
                 }
             }
             .contentShape(Rectangle())
         }
-        .buttonStyle(.plain)
-        .disabled(!isOnline && target != .localDevice)
+        .disabled(!isOnline)
     }
 }

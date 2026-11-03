@@ -6,14 +6,16 @@ struct NowPlayingDetailView: View {
     @State private var showSpeakerSheet = false
     @State private var showCustomPhraseEditor = false
     @State private var customPhraseInput = ""
+    @State private var showMatchDrawer = false
+    @State private var showQueueDrawer = false
 
     var body: some View {
         NavigationStack {
             ZStack {
                 LinearGradient(
                     colors: [
-                        Color.pink.opacity(0.28),
-                        Color.indigo.opacity(0.22),
+                        Color.pink.opacity(0.24),
+                        Color.indigo.opacity(0.18),
                         Color(.systemBackground)
                     ],
                     startPoint: .topLeading,
@@ -22,21 +24,22 @@ struct NowPlayingDetailView: View {
                 .ignoresSafeArea()
 
                 ScrollView {
-                    VStack(spacing: 20) {
-                        // Live Speaker Telemetry Verification Card (Requested vs Actually Playing on Speaker)
+                    VStack(spacing: 22) {
+                        // Compact Live Speaker Status Pill (Auto-expands on mismatch or when tapped)
                         if coordinator.selectedTarget.isAlexaTarget {
-                            liveSpeakerVerificationCard
-                                .padding(.horizontal, 20)
-                                .padding(.top, 6)
+                            compactLiveSpeakerStatus
+                                .padding(.horizontal, 24)
+                                .padding(.top, 4)
                         }
 
                         // Large Album Artwork
-                        ArtworkThumbnailView(url: coordinator.currentItem?.artworkURL, size: 225)
-                            .shadow(color: .black.opacity(0.32), radius: 20, x: 0, y: 10)
+                        ArtworkThumbnailView(url: coordinator.currentItem?.artworkURL, size: 256)
+                            .shadow(color: .black.opacity(0.32), radius: 22, x: 0, y: 12)
                             .scaleEffect(coordinator.isPlaying ? 1.0 : 0.94)
                             .animation(.spring(response: 0.4, dampingFraction: 0.72), value: coordinator.isPlaying)
+                            .padding(.top, 4)
 
-                        // Track Metadata + Status
+                        // Track Title, Artist & Subtle Status
                         VStack(spacing: 5) {
                             Text(coordinator.liveSpeakerReport?.title ?? coordinator.currentItem?.cleanTitle ?? "No Track Selected")
                                 .font(.title2.weight(.bold))
@@ -49,8 +52,8 @@ struct NowPlayingDetailView: View {
                                 .lineLimit(1)
 
                             if let movie = (coordinator.requestedItem ?? coordinator.currentItem)?.extractedMovieName {
-                                Text("Movie / Soundtrack: \(movie)")
-                                    .font(.caption.weight(.semibold))
+                                Text("Soundtrack: \(movie)")
+                                    .font(.caption.weight(.medium))
                                     .foregroundStyle(.pink)
                             } else if let album = coordinator.liveSpeakerReport?.album ?? coordinator.currentItem?.albumTitle, !album.isEmpty {
                                 Text(album)
@@ -68,20 +71,14 @@ struct NowPlayingDetailView: View {
                         }
                         .padding(.horizontal, 24)
 
-                        // Progress Bar + Auto-Advance Indicator
+                        // Progress Bar
                         if let item = coordinator.currentItem {
                             let total = max(45, coordinator.liveSpeakerReport?.mediaLength ?? item.durationSeconds ?? 210)
-                            VStack(spacing: 4) {
+                            VStack(spacing: 5) {
                                 ProgressView(value: min(coordinator.elapsedSeconds, total), total: total)
-                                    .tint(coordinator.selectedTarget.isAlexaTarget ? .green : .pink)
+                                    .tint(.pink)
                                 HStack {
                                     Text(formatTime(coordinator.elapsedSeconds))
-                                    Spacer()
-                                    if coordinator.isAutoAdvanceEnabled {
-                                        Label("Auto-Next Queue On", systemImage: "repeat.1")
-                                            .font(.caption2)
-                                            .foregroundStyle(.secondary)
-                                    }
                                     Spacer()
                                     Text(formatTime(total))
                                 }
@@ -91,21 +88,21 @@ struct NowPlayingDetailView: View {
                             .padding(.horizontal, 28)
                         }
 
-                        // Primary Transport Controls (Shuffle, Previous, Play/Pause, Stop, Next)
-                        HStack(spacing: 30) {
+                        // Clean Transport Controls (Shuffle, Previous, Play/Pause, Next, Auto-Next)
+                        HStack(spacing: 34) {
                             Button {
                                 Task { await coordinator.toggleShuffle() }
                             } label: {
                                 Image(systemName: "shuffle")
                                     .font(.title3)
-                                    .foregroundStyle(coordinator.isShuffleEnabled ? .green : .secondary)
+                                    .foregroundStyle(coordinator.isShuffleEnabled ? .pink : .secondary)
                             }
 
                             Button {
                                 Task { await coordinator.skipPrevious() }
                             } label: {
                                 Image(systemName: "backward.fill")
-                                    .font(.system(size: 26))
+                                    .font(.system(size: 27))
                                     .foregroundStyle(.primary)
                             }
 
@@ -115,7 +112,7 @@ struct NowPlayingDetailView: View {
                                 ZStack {
                                     Circle()
                                         .fill(Color.primary)
-                                        .frame(width: 68, height: 68)
+                                        .frame(width: 70, height: 70)
 
                                     if coordinator.isTransferring {
                                         ProgressView()
@@ -132,84 +129,25 @@ struct NowPlayingDetailView: View {
                                 Task { await coordinator.skipNext() }
                             } label: {
                                 Image(systemName: "forward.fill")
-                                    .font(.system(size: 26))
+                                    .font(.system(size: 27))
                                     .foregroundStyle(.primary)
                             }
 
                             Button {
-                                Task { await coordinator.stopAllPlayback() }
+                                coordinator.isAutoAdvanceEnabled.toggle()
                             } label: {
-                                Image(systemName: "stop.circle.fill")
-                                    .font(.title2)
-                                    .foregroundStyle(.red)
+                                Image(systemName: "infinity")
+                                    .font(.title3)
+                                    .foregroundStyle(coordinator.isAutoAdvanceEnabled ? .pink : .secondary)
                             }
                         }
 
-                        // Smart Song Match / Provider Switcher Strip (Uses `requestedItem` so you never lose the song you tapped!)
-                        if let targetSong = coordinator.requestedItem ?? coordinator.currentItem,
-                           coordinator.selectedTarget.isAlexaTarget {
-                            VStack(alignment: .leading, spacing: 8) {
-                                HStack {
-                                    Label("Force Exact Song Match", systemImage: "wand.and.stars")
-                                        .font(.caption.weight(.bold))
-                                        .foregroundStyle(.secondary)
-                                    Spacer()
-                                    Button("Edit Custom Phrase") {
-                                        customPhraseInput = coordinator.customPhrase(for: targetSong) ?? targetSong.cleanTitle
-                                        showCustomPhraseEditor = true
-                                    }
-                                    .font(.caption2.weight(.semibold))
-                                    .foregroundStyle(.pink)
-                                }
-
-                                ScrollView(.horizontal, showsIndicators: false) {
-                                    HStack(spacing: 8) {
-                                        ForEach(targetSong.alexaCandidatePhrases, id: \.self) { phrase in
-                                            Button {
-                                                Task {
-                                                    await coordinator.playWithPhrase(phrase, for: targetSong)
-                                                }
-                                            } label: {
-                                                Text("Play \"\(phrase)\"")
-                                                    .font(.caption2.weight(.semibold))
-                                                    .padding(.horizontal, 10)
-                                                    .padding(.vertical, 6)
-                                                    .background(Color(.secondarySystemBackground))
-                                                    .clipShape(Capsule())
-                                            }
-                                            .buttonStyle(.plain)
-                                        }
-
-                                        Button {
-                                            Task {
-                                                await coordinator.playWithPhrase(
-                                                    targetSong.cleanTitle,
-                                                    for: targetSong,
-                                                    provider: .amazonMusic
-                                                )
-                                            }
-                                        } label: {
-                                            Label("Try on Amazon Music", systemImage: "music.quarternote.3")
-                                                .font(.caption2.weight(.semibold))
-                                                .padding(.horizontal, 10)
-                                                .padding(.vertical, 6)
-                                                .background(Color.blue.opacity(0.18))
-                                                .foregroundStyle(.blue)
-                                                .clipShape(Capsule())
-                                        }
-                                        .buttonStyle(.plain)
-                                    }
-                                }
-                            }
-                            .padding(.horizontal, 24)
-                        }
-
-                        // Volume Slider
+                        // Master Volume Slider
                         HStack(spacing: 12) {
                             Button {
                                 Task { await coordinator.stepVolume(by: -10) }
                             } label: {
-                                Image(systemName: "speaker.minus.fill")
+                                Image(systemName: "speaker.fill")
                                     .font(.caption)
                                     .foregroundStyle(.secondary)
                             }
@@ -228,12 +166,12 @@ struct NowPlayingDetailView: View {
                                     }
                                 }
                             }
-                            .tint(coordinator.selectedTarget.isAlexaTarget ? .green : .pink)
+                            .tint(.pink)
 
                             Button {
                                 Task { await coordinator.stepVolume(by: 10) }
                             } label: {
-                                Image(systemName: "speaker.plus.fill")
+                                Image(systemName: "speaker.wave.3.fill")
                                     .font(.caption)
                                     .foregroundStyle(.secondary)
                             }
@@ -243,80 +181,90 @@ struct NowPlayingDetailView: View {
                                 .foregroundStyle(.secondary)
                                 .frame(width: 34, alignment: .trailing)
                         }
-                        .padding(.horizontal, 24)
+                        .padding(.horizontal, 28)
 
-                        // Speaker Target Selector Pill
-                        Button {
-                            showSpeakerSheet = true
-                        } label: {
-                            HStack(spacing: 10) {
-                                Image(systemName: coordinator.selectedTarget.iconName)
-                                    .font(.subheadline.weight(.semibold))
-                                Text(
-                                    coordinator.selectedTarget.isAlexaTarget
-                                        ? "Playing on \(coordinator.selectedTarget.displayName) (Tap for Room Volumes)"
-                                        : "Connect to an Alexa Speaker or Group"
+                        // Apple Music-Style Bottom Action Bar (Speakers, Fix Song Match, Up Next Queue)
+                        HStack(spacing: 10) {
+                            Button {
+                                showSpeakerSheet = true
+                            } label: {
+                                HStack(spacing: 6) {
+                                    Image(systemName: coordinator.selectedTarget.iconName)
+                                        .font(.caption.weight(.semibold))
+                                    Text(coordinator.selectedTarget.displayName)
+                                        .font(.caption.weight(.semibold))
+                                        .lineLimit(1)
+                                }
+                                .padding(.horizontal, 14)
+                                .padding(.vertical, 10)
+                                .frame(maxWidth: .infinity)
+                                .background(
+                                    Capsule()
+                                        .fill(coordinator.selectedTarget.isAlexaTarget ? Color.green.opacity(0.18) : Color(.secondarySystemBackground))
                                 )
-                                .font(.caption.weight(.semibold))
-                                Spacer()
-                                Image(systemName: "chevron.up")
-                                    .font(.caption.weight(.bold))
+                                .foregroundStyle(coordinator.selectedTarget.isAlexaTarget ? .green : .primary)
                             }
-                            .padding(.horizontal, 16)
-                            .padding(.vertical, 12)
-                            .background(
-                                RoundedRectangle(cornerRadius: 14, style: .continuous)
-                                    .fill(coordinator.selectedTarget.isAlexaTarget ? Color.green.opacity(0.2) : Color(.secondarySystemBackground))
-                            )
-                            .foregroundStyle(coordinator.selectedTarget.isAlexaTarget ? .green : .primary)
+                            .buttonStyle(.plain)
+
+                            if coordinator.selectedTarget.isAlexaTarget {
+                                Button {
+                                    withAnimation(.easeInOut(duration: 0.2)) {
+                                        showMatchDrawer.toggle()
+                                    }
+                                } label: {
+                                    HStack(spacing: 5) {
+                                        Image(systemName: "wand.and.stars")
+                                            .font(.caption.weight(.semibold))
+                                        Text("Fix Match")
+                                            .font(.caption.weight(.semibold))
+                                    }
+                                    .padding(.horizontal, 13)
+                                    .padding(.vertical, 10)
+                                    .background(
+                                        Capsule()
+                                            .fill(showMatchDrawer || coordinator.isSpeakerMismatch ? Color.orange.opacity(0.22) : Color(.secondarySystemBackground))
+                                    )
+                                    .foregroundStyle(showMatchDrawer || coordinator.isSpeakerMismatch ? .orange : .primary)
+                                }
+                                .buttonStyle(.plain)
+                            }
+
+                            Button {
+                                withAnimation(.easeInOut(duration: 0.2)) {
+                                    showQueueDrawer.toggle()
+                                }
+                            } label: {
+                                HStack(spacing: 5) {
+                                    Image(systemName: "list.bullet")
+                                        .font(.caption.weight(.semibold))
+                                    Text("Up Next")
+                                        .font(.caption.weight(.semibold))
+                                }
+                                .padding(.horizontal, 13)
+                                .padding(.vertical, 10)
+                                .background(
+                                    Capsule()
+                                        .fill(showQueueDrawer ? Color.pink.opacity(0.22) : Color(.secondarySystemBackground))
+                                )
+                                .foregroundStyle(showQueueDrawer ? .pink : .primary)
+                            }
+                            .buttonStyle(.plain)
                         }
                         .padding(.horizontal, 24)
 
-                        // Interactive "Up Next" Queue Section
-                        let upcoming = coordinator.upNextItems()
-                        if !upcoming.isEmpty {
-                            VStack(alignment: .leading, spacing: 10) {
-                                HStack {
-                                    Label("Up Next in Queue", systemImage: "text.line.first.and.arrowtriangle.forward")
-                                        .font(.headline)
-                                    Spacer()
-                                    Toggle("Auto-Next", isOn: $coordinator.isAutoAdvanceEnabled)
-                                        .labelsHidden()
-                                        .tint(.green)
-                                }
+                        // Expandable Drawer 1: Song Match & Custom Phrase Override (Shown when tapped or on mismatch)
+                        if (showMatchDrawer || coordinator.isSpeakerMismatch),
+                           let targetSong = coordinator.requestedItem ?? coordinator.currentItem,
+                           coordinator.selectedTarget.isAlexaTarget {
+                            songMatchDrawerView(for: targetSong)
                                 .padding(.horizontal, 24)
+                                .transition(.opacity.combined(with: .move(edge: .top)))
+                        }
 
-                                LazyVStack(spacing: 4) {
-                                    ForEach(upcoming.prefix(15)) { nextItem in
-                                        Button {
-                                            Task {
-                                                await coordinator.play(nextItem, inQueue: coordinator.currentQueueList())
-                                            }
-                                        } label: {
-                                            HStack(spacing: 12) {
-                                                ArtworkThumbnailView(url: nextItem.artworkURL, size: 42)
-                                                VStack(alignment: .leading, spacing: 2) {
-                                                    Text(nextItem.cleanTitle)
-                                                        .font(.subheadline.weight(.medium))
-                                                        .foregroundStyle(.primary)
-                                                        .lineLimit(1)
-                                                    Text(nextItem.subtitle)
-                                                        .font(.caption)
-                                                        .foregroundStyle(.secondary)
-                                                        .lineLimit(1)
-                                                }
-                                                Spacer()
-                                                Image(systemName: "play.circle")
-                                                    .foregroundStyle(.secondary)
-                                            }
-                                            .padding(.horizontal, 24)
-                                            .padding(.vertical, 4)
-                                        }
-                                        .buttonStyle(.plain)
-                                    }
-                                }
-                            }
-                            .padding(.top, 6)
+                        // Expandable Drawer 2: Up Next Queue (Shown when user taps "Up Next")
+                        if showQueueDrawer {
+                            upNextQueueDrawerView
+                                .transition(.opacity.combined(with: .move(edge: .bottom)))
                         }
                     }
                     .padding(.bottom, 32)
@@ -333,49 +281,52 @@ struct NowPlayingDetailView: View {
                     }
                 }
                 ToolbarItem(placement: .principal) {
-                    VStack(spacing: 1) {
-                        Text(coordinator.providerPreference.rawValue.uppercased())
-                            .font(.caption2.weight(.semibold))
-                            .foregroundStyle(.secondary)
-                        Text(coordinator.selectedTarget.displayName)
-                            .font(.caption.weight(.bold))
-                            .foregroundStyle(coordinator.selectedTarget.isAlexaTarget ? .green : .primary)
-                    }
+                    Text(coordinator.selectedTarget.displayName)
+                        .font(.caption.weight(.bold))
+                        .foregroundStyle(coordinator.selectedTarget.isAlexaTarget ? .green : .secondary)
                 }
                 ToolbarItem(placement: .topBarTrailing) {
-                    HStack(spacing: 12) {
-                        Menu {
-                            Section("Universal Group Sleep Timer") {
-                                Button("Off") { coordinator.setSleepTimer(minutes: 0) }
-                                Button("15 Minutes") { coordinator.setSleepTimer(minutes: 15) }
-                                Button("30 Minutes") { coordinator.setSleepTimer(minutes: 30) }
-                                Button("45 Minutes") { coordinator.setSleepTimer(minutes: 45) }
-                                Button("60 Minutes") { coordinator.setSleepTimer(minutes: 60) }
+                    Menu {
+                        Section("Speaker Controls") {
+                            Button(role: .destructive) {
+                                Task { await coordinator.stopAllPlayback() }
+                            } label: {
+                                Label("Stop All Speakers", systemImage: "stop.circle.fill")
                             }
-                        } label: {
-                            HStack(spacing: 4) {
-                                Image(systemName: coordinator.sleepTimerMinutesRemaining > 0 ? "moon.zzz.fill" : "moon")
-                                    .font(.subheadline)
-                                    .foregroundStyle(coordinator.sleepTimerMinutesRemaining > 0 ? .pink : .primary)
-                                if coordinator.sleepTimerMinutesRemaining > 0 {
-                                    Text("\(coordinator.sleepTimerMinutesRemaining)m")
-                                        .font(.caption2.monospacedDigit().weight(.bold))
-                                        .foregroundStyle(.pink)
-                                }
+
+                            Button {
+                                Task { await coordinator.forceRefreshLiveSpeaker() }
+                            } label: {
+                                Label("Refresh Live Speaker Track", systemImage: "arrow.triangle.2.circlepath")
                             }
                         }
 
-                        Button {
-                            Task { await coordinator.forceRefreshLiveSpeaker() }
-                        } label: {
-                            Image(systemName: "arrow.triangle.2.circlepath")
-                                .font(.subheadline)
+                        Section("Sleep Timer (\(coordinator.sleepTimerMinutesRemaining > 0 ? "\(coordinator.sleepTimerMinutesRemaining)m left" : "Off"))") {
+                            Button("Turn Off Sleep Timer") { coordinator.setSleepTimer(minutes: 0) }
+                            Button("15 Minutes") { coordinator.setSleepTimer(minutes: 15) }
+                            Button("30 Minutes") { coordinator.setSleepTimer(minutes: 30) }
+                            Button("45 Minutes") { coordinator.setSleepTimer(minutes: 45) }
+                            Button("60 Minutes") { coordinator.setSleepTimer(minutes: 60) }
+                        }
+                    } label: {
+                        HStack(spacing: 4) {
+                            if coordinator.sleepTimerMinutesRemaining > 0 {
+                                Image(systemName: "moon.zzz.fill")
+                                    .font(.caption)
+                                    .foregroundStyle(.pink)
+                                Text("\(coordinator.sleepTimerMinutesRemaining)m")
+                                    .font(.caption2.monospacedDigit().weight(.bold))
+                                    .foregroundStyle(.pink)
+                            } else {
+                                Image(systemName: "ellipsis.circle")
+                                    .font(.headline)
+                            }
                         }
                     }
                 }
             }
             .sheet(isPresented: $showSpeakerSheet) {
-                SpeakerPickerSheet()
+                SpeakerPickerSheet(isEmbeddedInTab: false)
             }
             .alert("Custom Alexa Song Phrase", isPresented: $showCustomPhraseEditor) {
                 TextField("e.g. Aeroplane from Scene", text: $customPhraseInput)
@@ -396,75 +347,174 @@ struct NowPlayingDetailView: View {
         }
     }
 
-    // MARK: - Live Speaker Telemetry vs Requested Track Comparison Card
+    // MARK: - Compact Live Speaker Status Pill (Progressive Disclosure)
 
     @ViewBuilder
-    private var liveSpeakerVerificationCard: some View {
-        VStack(alignment: .leading, spacing: 8) {
-            HStack {
-                Image(systemName: coordinator.isSpeakerMismatch ? "exclamationmark.triangle.fill" : "checkmark.seal.fill")
-                    .foregroundStyle(coordinator.isSpeakerMismatch ? .orange : .green)
-                Text(coordinator.isSpeakerMismatch ? "Speaker Track Mismatch Detected" : "Live Speaker Now Playing")
-                    .font(.caption.weight(.bold))
-                    .foregroundStyle(coordinator.isSpeakerMismatch ? .orange : .green)
-                Spacer()
-                if let report = coordinator.liveSpeakerReport {
-                    Text("\(report.reportingSpeakerName) • \(report.state)")
-                        .font(.system(size: 10, weight: .semibold))
-                        .padding(.horizontal, 6)
-                        .padding(.vertical, 2)
-                        .background(Color.secondary.opacity(0.2))
-                        .clipShape(Capsule())
-                }
+    private var compactLiveSpeakerStatus: some View {
+        Button {
+            withAnimation(.easeInOut(duration: 0.2)) {
+                showMatchDrawer.toggle()
             }
+        } label: {
+            HStack(spacing: 8) {
+                Image(systemName: coordinator.isSpeakerMismatch ? "exclamationmark.triangle.fill" : "checkmark.circle.fill")
+                    .font(.caption)
+                    .foregroundStyle(coordinator.isSpeakerMismatch ? .orange : .green)
 
-            if let report = coordinator.liveSpeakerReport, !report.title.isEmpty {
-                HStack(alignment: .top, spacing: 12) {
-                    VStack(alignment: .leading, spacing: 2) {
-                        Text("ACTUALLY ON SPEAKER")
-                            .font(.system(size: 9, weight: .bold))
-                            .foregroundStyle(.secondary)
-                        Text(report.title)
-                            .font(.caption.weight(.semibold))
+                if let report = coordinator.liveSpeakerReport, !report.title.isEmpty {
+                    if coordinator.isSpeakerMismatch, let requested = coordinator.requestedItem {
+                        Text("Speaker playing \"\(report.title)\" instead of \"\(requested.cleanTitle)\" • Tap to Fix")
+                            .font(.caption2.weight(.semibold))
+                            .foregroundStyle(.orange)
                             .lineLimit(1)
-                        if !report.artist.isEmpty {
-                            Text(report.artist)
-                                .font(.caption2)
-                                .foregroundStyle(.secondary)
-                                .lineLimit(1)
-                        }
+                    } else {
+                        Text("Live on \(report.reportingSpeakerName): \(report.title)")
+                            .font(.caption2.weight(.medium))
+                            .foregroundStyle(.secondary)
+                            .lineLimit(1)
                     }
-                    Spacer()
-                    if let requested = coordinator.requestedItem {
-                        VStack(alignment: .trailing, spacing: 2) {
-                            Text("YOU REQUESTED")
-                                .font(.system(size: 9, weight: .bold))
-                                .foregroundStyle(.secondary)
-                            Text(requested.cleanTitle)
-                                .font(.caption.weight(.semibold))
-                                .lineLimit(1)
-                            Text(requested.primaryArtist)
-                                .font(.caption2)
-                                .foregroundStyle(.secondary)
-                                .lineLimit(1)
-                        }
-                    }
+                } else {
+                    Text("Connected to \(coordinator.selectedTarget.displayName)")
+                        .font(.caption2)
+                        .foregroundStyle(.secondary)
+                        .lineLimit(1)
                 }
-            } else {
-                Text("Polling live track state from \(coordinator.selectedTarget.displayName)...")
-                    .font(.caption2)
+
+                Spacer(minLength: 4)
+
+                Image(systemName: showMatchDrawer ? "chevron.up" : "chevron.down")
+                    .font(.system(size: 10, weight: .bold))
                     .foregroundStyle(.secondary)
             }
+            .padding(.horizontal, 12)
+            .padding(.vertical, 8)
+            .background(
+                Capsule()
+                    .fill(coordinator.isSpeakerMismatch ? Color.orange.opacity(0.16) : Color(.secondarySystemBackground).opacity(0.85))
+            )
         }
-        .padding(12)
+        .buttonStyle(.plain)
+    }
+
+    // MARK: - Expandable Song Match Drawer
+
+    @ViewBuilder
+    private func songMatchDrawerView(for targetSong: PlayableMediaItem) -> some View {
+        VStack(alignment: .leading, spacing: 10) {
+            HStack {
+                Label("Try Alternate Voice Phrase", systemImage: "wand.and.stars")
+                    .font(.caption.weight(.bold))
+                    .foregroundStyle(.secondary)
+                Spacer()
+                Button("Custom Phrase...") {
+                    customPhraseInput = coordinator.customPhrase(for: targetSong) ?? targetSong.cleanTitle
+                    showCustomPhraseEditor = true
+                }
+                .font(.caption2.weight(.semibold))
+                .foregroundStyle(.pink)
+            }
+
+            ScrollView(.horizontal, showsIndicators: false) {
+                HStack(spacing: 8) {
+                    ForEach(targetSong.alexaCandidatePhrases, id: \.self) { phrase in
+                        Button {
+                            Task {
+                                await coordinator.playWithPhrase(phrase, for: targetSong)
+                            }
+                        } label: {
+                            Text("Play \"\(phrase)\"")
+                                .font(.caption2.weight(.semibold))
+                                .padding(.horizontal, 10)
+                                .padding(.vertical, 6)
+                                .background(Color(.tertiarySystemFill))
+                                .clipShape(Capsule())
+                        }
+                        .buttonStyle(.plain)
+                    }
+
+                    Button {
+                        Task {
+                            await coordinator.playWithPhrase(
+                                targetSong.cleanTitle,
+                                for: targetSong,
+                                provider: .amazonMusic
+                            )
+                        }
+                    } label: {
+                        Label("Try Amazon Music", systemImage: "music.quarternote.3")
+                            .font(.caption2.weight(.semibold))
+                            .padding(.horizontal, 10)
+                            .padding(.vertical, 6)
+                            .background(Color.blue.opacity(0.18))
+                            .foregroundStyle(.blue)
+                            .clipShape(Capsule())
+                    }
+                    .buttonStyle(.plain)
+                }
+            }
+        }
+        .padding(14)
         .background(
-            RoundedRectangle(cornerRadius: 14, style: .continuous)
-                .fill(coordinator.isSpeakerMismatch ? Color.orange.opacity(0.15) : Color(.secondarySystemBackground).opacity(0.85))
+            RoundedRectangle(cornerRadius: 16, style: .continuous)
+                .fill(Color(.secondarySystemBackground))
         )
-        .overlay(
-            RoundedRectangle(cornerRadius: 14, style: .continuous)
-                .stroke(coordinator.isSpeakerMismatch ? Color.orange.opacity(0.5) : Color.clear, lineWidth: 1)
-        )
+    }
+
+    // MARK: - Expandable Up Next Queue Drawer
+
+    @ViewBuilder
+    private var upNextQueueDrawerView: some View {
+        let upcoming = coordinator.upNextItems()
+        VStack(alignment: .leading, spacing: 10) {
+            HStack {
+                Label("Up Next in Queue", systemImage: "text.line.first.and.arrowtriangle.forward")
+                    .font(.subheadline.weight(.bold))
+                Spacer()
+                Toggle("Auto-Next", isOn: $coordinator.isAutoAdvanceEnabled)
+                    .labelsHidden()
+                    .tint(.pink)
+            }
+            .padding(.horizontal, 24)
+
+            if upcoming.isEmpty {
+                Text("Queue is empty. Play a playlist or tap '•••' on any song to add it to your queue.")
+                    .font(.caption)
+                    .foregroundStyle(.secondary)
+                    .padding(.horizontal, 24)
+            } else {
+                LazyVStack(spacing: 2) {
+                    ForEach(upcoming.prefix(15)) { nextItem in
+                        Button {
+                            Task {
+                                await coordinator.play(nextItem, inQueue: coordinator.currentQueueList())
+                            }
+                        } label: {
+                            HStack(spacing: 12) {
+                                ArtworkThumbnailView(url: nextItem.artworkURL, size: 42)
+                                VStack(alignment: .leading, spacing: 2) {
+                                    Text(nextItem.cleanTitle)
+                                        .font(.subheadline.weight(.medium))
+                                        .foregroundStyle(.primary)
+                                        .lineLimit(1)
+                                    Text(nextItem.subtitle)
+                                        .font(.caption)
+                                        .foregroundStyle(.secondary)
+                                        .lineLimit(1)
+                                }
+                                Spacer()
+                                Image(systemName: "play.fill")
+                                    .font(.caption)
+                                    .foregroundStyle(.secondary)
+                            }
+                            .padding(.horizontal, 24)
+                            .padding(.vertical, 4)
+                        }
+                        .buttonStyle(.plain)
+                    }
+                }
+            }
+        }
+        .padding(.top, 4)
     }
 
     private func formatTime(_ seconds: Double) -> String {

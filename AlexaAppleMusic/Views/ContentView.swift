@@ -12,24 +12,32 @@ struct ContentView: View {
     var body: some View {
         TabView(selection: $selectedTab) {
             LibraryAndSearchView(
+                mode: .home,
                 onOpenSpeakers: { showSpeakerPickerSheet = true },
                 onOpenNowPlaying: { showNowPlayingDetail = true }
             )
             .safeAreaInset(edge: .bottom) {
-                if coordinator.currentItem != nil || coordinator.selectedTarget.isAlexaTarget {
-                    NowPlayingBar(
-                        onTapBar: { showNowPlayingDetail = true },
-                        onTapSpeakers: { showSpeakerPickerSheet = true }
-                    )
-                    .padding(.bottom, 6)
-                }
+                miniPlayerOverlay
             }
             .tabItem {
-                Label("Music", systemImage: "music.note.house.fill")
+                Label("Home", systemImage: "house.fill")
             }
             .tag(0)
 
-            SpeakerPickerSheet()
+            LibraryAndSearchView(
+                mode: .library,
+                onOpenSpeakers: { showSpeakerPickerSheet = true },
+                onOpenNowPlaying: { showNowPlayingDetail = true }
+            )
+            .safeAreaInset(edge: .bottom) {
+                miniPlayerOverlay
+            }
+            .tabItem {
+                Label("Library", systemImage: "music.note.list")
+            }
+            .tag(1)
+
+            SpeakerPickerSheet(isEmbeddedInTab: true)
                 .safeAreaInset(edge: .bottom) {
                     if coordinator.currentItem != nil {
                         NowPlayingBar(
@@ -42,11 +50,11 @@ struct ContentView: View {
                 .tabItem {
                     Label("Speakers", systemImage: "hifispeaker.2.fill")
                 }
-                .tag(1)
+                .tag(2)
         }
         .tint(.pink)
         .sheet(isPresented: $showSpeakerPickerSheet) {
-            SpeakerPickerSheet()
+            SpeakerPickerSheet(isEmbeddedInTab: false)
                 .presentationDetents([.medium, .large])
                 .presentationDragIndicator(.visible)
         }
@@ -68,7 +76,7 @@ struct ContentView: View {
                 if let group = alexaClient.speakerGroups.first {
                     await coordinator.selectTarget(.alexaDevice(group))
                 }
-                selectedTab = 1
+                selectedTab = 2
             } else if env == "NOW_PLAYING" {
                 authManager.enableDemoMode()
                 await alexaClient.fetchDevices()
@@ -93,6 +101,17 @@ struct ContentView: View {
             } else if authManager.isAuthenticated {
                 await alexaClient.fetchDevices()
             }
+        }
+    }
+
+    @ViewBuilder
+    private var miniPlayerOverlay: some View {
+        if coordinator.currentItem != nil || coordinator.selectedTarget.isAlexaTarget {
+            NowPlayingBar(
+                onTapBar: { showNowPlayingDetail = true },
+                onTapSpeakers: { showSpeakerPickerSheet = true }
+            )
+            .padding(.bottom, 6)
         }
     }
 }

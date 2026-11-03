@@ -9,6 +9,13 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Changed
+- **Streamlined 3-Tab Navigation & Decluttered Player UI**:
+  - Updated [`ContentView.swift`](AlexaAppleMusic/Views/ContentView.swift) with dedicated **Home**, **Library**, and **Speakers** tabs and `.safeAreaInset(edge: .bottom)` mini-player docking.
+  - Refactored [`LibraryAndSearchView.swift`](AlexaAppleMusic/Views/LibraryAndSearchView.swift) into focused `.home` and `.library` modes with segmented **Playlists**, **Albums**, **Songs**, and **Stations** views.
+  - Simplified [`NowPlayingDetailView.swift`](AlexaAppleMusic/Views/NowPlayingDetailView.swift) with a compact Live Speaker Status pill, expandable Song Match drawer, and collapsible Up Next Queue drawer.
+  - Organized [`SpeakerPickerSheet.swift`](AlexaAppleMusic/Views/SpeakerPickerSheet.swift) with an inline Stop button on the Active Output card and a collapsible disclosure section for advanced Sonos sync & catalog resolver settings.
+
 ### Added
 - **Architectural Upgrades Inspired by Music Assistant & `alexapy`**:
   - **`Alexa.TextCommand` (`skillId: amzn1.ask.1p.tellalexa`)**: Added Amazon's first-party text-to-intent behavior node in `AlexaAPIClient.swift` for rock-solid Multi-Room (`WHA`) and regional song fallback.
