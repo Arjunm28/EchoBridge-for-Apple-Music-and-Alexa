@@ -2,6 +2,7 @@ import Foundation
 import MusicKit
 import MediaPlayer
 import AVFoundation
+import UIKit
 import Combine
 
 @MainActor
@@ -49,6 +50,7 @@ final class PlaybackCoordinator: ObservableObject {
         }
     }
     @Published var elapsedSeconds: Double = 0
+    @Published var sleepTimerMinutesRemaining: Int = 0
     @Published var statusBanner: String?
     @Published var errorMessage: String?
 
@@ -67,6 +69,9 @@ final class PlaybackCoordinator: ObservableObject {
     private var isUsingAVPlayer: Bool = false
     private var lastManualCommandTime: Date = .distantPast
     private var customPhraseMap: [String: String] = [:]
+    private var sleepTimerSecondsLeft: Int = 0
+    private var cachedArtworkURL: URL?
+    private var cachedArtworkImage: UIImage?
 
     private init() {
         if let savedPref = UserDefaults.standard.string(forKey: Self.providerPrefKey),
@@ -87,6 +92,7 @@ final class PlaybackCoordinator: ObservableObject {
         }
 
         configureAudioSession()
+        setupRemoteCommandCenter()
         startPollingAlexaState()
         startProgressAndAutoAdvanceTimer()
     }
@@ -96,6 +102,97 @@ final class PlaybackCoordinator: ObservableObject {
             try AVAudioSession.sharedInstance().setCategory(.playback, mode: .default)
             try AVAudioSession.sharedInstance().setActive(true)
         } catch {}
+    }
+
+    // MARK: - iOS Lock Screen, Control Center & Dynamic Island Remote Controls
+
+    private func setupRemoteCommandCenter() {
+        let commandCenter = MPRemoteCommandCenter.shared()
+
+        commandCenter.playCommand.isEnabled = true
+        commandCenter.playCommand.addTarget { [weak self] _ in
+            guard let self else { return .commandFailed }
+            Task { @MainActor in
+                if !self.isPlaying {
+                    await self.togglePlayPause()
+                }
+            }
+            return .success
+        }
+
+        commandCenter.pauseCommand.isEnabled = true
+        commandCenter.pauseCommand.addTarget { [weak self] _ in
+            guard let self else { return .commandFailed }
+            Task { @MainActor in
+                if self.isPlaying {
+                    await self.togglePlayPause()
+                }
+            }
+            return .success
+        }
+
+        commandCenter.togglePlayPauseCommand.isEnabled = true
+        commandCenter.togglePlayPauseCommand.addTarget { [weak self] _ in
+            guard let self else { return .commandFailed }
+            Task { @MainActor in
+                await self.togglePlayPause()
+            }
+            return .success
+        }
+
+        commandCenter.nextTrackCommand.isEnabled = true
+        commandCenter.nextTrackCommand.addTarget { [weak self] _ in
+            guard let self else { return .commandFailed }
+            Task { @MainActor in
+                await self.skipNext()
+            }
+            return .success
+        }
+
+        commandCenter.previousTrackCommand.isEnabled = true
+        commandCenter.previousTrackCommand.addTarget { [weak self] _ in
+            guard let self else { return .commandFailed }
+            Task { @MainActor in
+                await self.skipPrevious()
+            }
+            return .success
+        }
+    }
+
+    func updateLockScreenNowPlayingInfo() {
+        guard let item = currentItem else {
+            MPNowPlayingInfoCenter.default().nowPlayingInfo = nil
+            return
+        }
+
+        var info: [String: Any] = [
+            MPMediaItemPropertyTitle: item.title,
+            MPMediaItemPropertyArtist: selectedTarget.isAlexaTarget
+                ? "\(item.subtitle) • \(selectedTarget.displayName)"
+                : item.subtitle,
+            MPMediaItemPropertyPlaybackDuration: item.durationSeconds ?? 210,
+            MPNowPlayingInfoPropertyElapsedPlaybackTime: elapsedSeconds,
+            MPNowPlayingInfoPropertyPlaybackRate: isPlaying ? 1.0 : 0.0
+        ]
+
+        if let album = item.albumTitle {
+            info[MPMediaItemPropertyAlbumTitle] = album
+        }
+
+        if let image = cachedArtworkImage, cachedArtworkURL == item.artworkURL {
+            info[MPMediaItemPropertyArtwork] = MPMediaItemArtwork(boundsSize: image.size) { _ in image }
+        } else if let url = item.artworkURL {
+            Task {
+                if let (data, _) = try? await URLSession.shared.data(from: url),
+                   let image = UIImage(data: data) {
+                    self.cachedArtworkURL = url
+                    self.cachedArtworkImage = image
+                    self.updateLockScreenNowPlayingInfo()
+                }
+            }
+        }
+
+        MPNowPlayingInfoCenter.default().nowPlayingInfo = info
     }
 
     // MARK: - Sonos / Companion Speaker Multi-Room Linking & Sync
@@ -327,6 +424,7 @@ final class PlaybackCoordinator: ObservableObject {
             }
             await playOnAlexaSynchronized(resolvedItem, device: device)
         }
+        updateLockScreenNowPlayingInfo()
     }
 
     func playWithPhrase(_ phrase: String, for item: PlayableMediaItem, provider: AlexaMusicProviderPreference? = nil) async {
@@ -358,18 +456,25 @@ final class PlaybackCoordinator: ObservableObject {
         }
 
         if let activeItem = currentItem, isPlaying {
+            // Pre-flight WHA Idle Release (inspired by alexa_media_player):
+            // If switching from an individual Echo speaker to a Multi-Room group (or vice versa), pause the previous target first so it releases its stream lock.
+            if case .alexaDevice(let oldAlexa) = previousTarget {
+                try? await alexaClient.sendTransportCommand(.pause, to: oldAlexa)
+                if newTarget.isAlexaTarget {
+                    try? await Task.sleep(nanoseconds: 350_000_000)
+                }
+            }
+
             switch newTarget {
             case .alexaDevice(let device):
                 await playOnAlexaSynchronized(activeItem, device: device)
             case .localDevice:
-                if case .alexaDevice(let oldAlexa) = previousTarget {
-                    try? await alexaClient.sendTransportCommand(.pause, to: oldAlexa)
-                }
                 await playLocally(activeItem)
             }
         } else if case .alexaDevice(let device) = newTarget {
             await refreshAlexaNowPlaying(for: device, force: true)
         }
+        updateLockScreenNowPlayingInfo()
     }
 
     // MARK: - Synchronized Alexa + Sonos Multi-Room Playback (With Configurable Head-Start Offset)
@@ -806,6 +911,60 @@ final class PlaybackCoordinator: ObservableObject {
         }
     }
 
+    // MARK: - Music Assistant-Style First-Class Queue Mutations & Sleep Timer
+
+    func playNext(_ item: PlayableMediaItem) {
+        var queue = currentQueueList()
+        queue.removeAll(where: { $0.id == item.id })
+        if let current = requestedItem ?? currentItem,
+           let idx = queue.firstIndex(where: { $0.id == current.id }) {
+            queue.insert(item, at: min(queue.count, idx + 1))
+        } else {
+            queue.insert(item, at: 0)
+        }
+        self.activeQueue = queue
+        self.statusBanner = "Playing next: \"\(item.cleanTitle)\""
+        Task {
+            try? await Task.sleep(nanoseconds: 2_200_000_000)
+            if self.statusBanner == "Playing next: \"\(item.cleanTitle)\"" {
+                self.statusBanner = nil
+            }
+        }
+    }
+
+    func addToQueue(_ item: PlayableMediaItem) {
+        var queue = currentQueueList()
+        if !queue.contains(where: { $0.id == item.id }) {
+            queue.append(item)
+        }
+        self.activeQueue = queue
+        self.statusBanner = "Added \"\(item.cleanTitle)\" to queue"
+        Task {
+            try? await Task.sleep(nanoseconds: 2_200_000_000)
+            if self.statusBanner == "Added \"\(item.cleanTitle)\" to queue" {
+                self.statusBanner = nil
+            }
+        }
+    }
+
+    func setSleepTimer(minutes: Int) {
+        if minutes <= 0 {
+            sleepTimerSecondsLeft = 0
+            sleepTimerMinutesRemaining = 0
+            statusBanner = "Sleep timer turned off"
+        } else {
+            sleepTimerSecondsLeft = minutes * 60
+            sleepTimerMinutesRemaining = minutes
+            statusBanner = "Sleep timer set for \(minutes) min"
+        }
+        Task {
+            try? await Task.sleep(nanoseconds: 2_200_000_000)
+            if self.statusBanner?.hasPrefix("Sleep timer") == true {
+                self.statusBanner = nil
+            }
+        }
+    }
+
     // MARK: - Auto-Advance Queue Engine & Progress Timer
 
     private func startProgressAndAutoAdvanceTimer() {
@@ -813,8 +972,24 @@ final class PlaybackCoordinator: ObservableObject {
         progressTimerTask = Task {
             while !Task.isCancelled {
                 try? await Task.sleep(nanoseconds: 1_000_000_000)
+
+                // Universal Group Sleep Timer Countdown
+                if sleepTimerSecondsLeft > 0 {
+                    sleepTimerSecondsLeft -= 1
+                    sleepTimerMinutesRemaining = Int(ceil(Double(sleepTimerSecondsLeft) / 60.0))
+                    if sleepTimerSecondsLeft <= 0 {
+                        sleepTimerMinutesRemaining = 0
+                        await stopAllPlayback()
+                        statusBanner = "Sleep timer ended playback"
+                        continue
+                    }
+                }
+
                 guard isPlaying, !isTransferring, let item = currentItem else { continue }
                 elapsedSeconds += 1
+                if Int(elapsedSeconds) % 5 == 0 {
+                    updateLockScreenNowPlayingInfo()
+                }
 
                 let trackDuration = max(45, item.durationSeconds ?? 210)
                 if isAutoAdvanceEnabled && elapsedSeconds >= trackDuration {
@@ -902,5 +1077,6 @@ final class PlaybackCoordinator: ObservableObject {
                 durationSeconds: report.mediaLength ?? 210
             )
         }
+        updateLockScreenNowPlayingInfo()
     }
 }

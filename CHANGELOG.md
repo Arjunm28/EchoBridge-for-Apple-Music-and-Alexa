@@ -10,6 +10,12 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 ## [Unreleased]
 
 ### Added
+- **Architectural Upgrades Inspired by Music Assistant & `alexapy`**:
+  - **`Alexa.TextCommand` (`skillId: amzn1.ask.1p.tellalexa`)**: Added Amazon's first-party text-to-intent behavior node in `AlexaAPIClient.swift` for rock-solid Multi-Room (`WHA`) and regional song fallback.
+  - **iOS Lock Screen, Control Center & Dynamic Island Integration**: Added `MPNowPlayingInfoCenter` and `MPRemoteCommandCenter` support in `PlaybackCoordinator.swift` so users can control Echo & Sonos Multi-Room playback directly from the iPhone Lock Screen.
+  - **First-Class Queue Actions ("Play Next" & "Add to Queue")**: Long-press context menus on songs in `LibraryAndSearchView.swift` to insert tracks next or append to the active controller queue.
+  - **Universal Group Sleep Timer**: Added a `15m / 30m / 45m / 60m` Sleep Timer in `NowPlayingDetailView.swift` that automatically stops all Echo Multi-Room and linked Sonos speakers when the timer expires.
+  - **Pre-Flight `WHA` Idle Release**: Automatically releases single-speaker stream locks before transitioning to a Multi-Room (`WHA`) group.
 - **Sonos + Echo Multi-Room Sync & Delay Compensation**:
   - **Multi-Room Companion Linking (`+` Link)**: Link any Alexa-enabled Sonos speaker (e.g., Sonos Era 100) to automatically play alongside Echo Multi-Room (`WHA`) groups like *Everywhere*.
   - **Sonos Head-Start Sync Offset (`-2.0s` to `+4.0s`)**: Staggered playback dispatch that triggers Sonos speakers first (`+1.8s` default head-start) to compensate for Sonos Cloud buffering lag before firing the Echo Multi-Room group.

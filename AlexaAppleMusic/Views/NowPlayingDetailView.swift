@@ -343,11 +343,34 @@ struct NowPlayingDetailView: View {
                     }
                 }
                 ToolbarItem(placement: .topBarTrailing) {
-                    Button {
-                        Task { await coordinator.forceRefreshLiveSpeaker() }
-                    } label: {
-                        Image(systemName: "arrow.triangle.2.circlepath")
-                            .font(.subheadline)
+                    HStack(spacing: 12) {
+                        Menu {
+                            Section("Universal Group Sleep Timer") {
+                                Button("Off") { coordinator.setSleepTimer(minutes: 0) }
+                                Button("15 Minutes") { coordinator.setSleepTimer(minutes: 15) }
+                                Button("30 Minutes") { coordinator.setSleepTimer(minutes: 30) }
+                                Button("45 Minutes") { coordinator.setSleepTimer(minutes: 45) }
+                                Button("60 Minutes") { coordinator.setSleepTimer(minutes: 60) }
+                            }
+                        } label: {
+                            HStack(spacing: 4) {
+                                Image(systemName: coordinator.sleepTimerMinutesRemaining > 0 ? "moon.zzz.fill" : "moon")
+                                    .font(.subheadline)
+                                    .foregroundStyle(coordinator.sleepTimerMinutesRemaining > 0 ? .pink : .primary)
+                                if coordinator.sleepTimerMinutesRemaining > 0 {
+                                    Text("\(coordinator.sleepTimerMinutesRemaining)m")
+                                        .font(.caption2.monospacedDigit().weight(.bold))
+                                        .foregroundStyle(.pink)
+                                }
+                            }
+                        }
+
+                        Button {
+                            Task { await coordinator.forceRefreshLiveSpeaker() }
+                        } label: {
+                            Image(systemName: "arrow.triangle.2.circlepath")
+                                .font(.subheadline)
+                        }
                     }
                 }
             }

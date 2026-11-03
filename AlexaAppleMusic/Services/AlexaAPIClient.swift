@@ -193,7 +193,8 @@ final class AlexaAPIClient: ObservableObject {
         }
     }
 
-    /// Sends a raw voice command string (e.g., "stop", "pause", "volume 30", "play Anirudh songs") directly to Alexa
+    /// Sends a raw text/voice command string (e.g., "stop", "pause", "volume 30", "play Anirudh songs") directly to Alexa
+    /// Uses `Alexa.TextCommand` (`skillId: amzn1.ask.1p.tellalexa`, same as alexapy / alexa_media_player) with fallback to `Alexa.VoiceCommand`.
     func sendRawVoiceCommand(_ commandText: String, to targetDevice: AlexaDevice) async throws {
         if authManager.isDemoMode { return }
         await authManager.fetchCSRFTokenIfNeeded()
@@ -211,7 +212,7 @@ final class AlexaAPIClient: ObservableObject {
             effectiveText = commandText
         }
 
-        let voicePayload: [String: Any] = [
+        let textPayload: [String: Any] = [
             "deviceType": physicalDevice.deviceType,
             "deviceSerialNumber": physicalDevice.serialNumber,
             "customerId": customerId,
@@ -219,9 +220,19 @@ final class AlexaAPIClient: ObservableObject {
             "text": effectiveText
         ]
 
+        let textCommandNode = try await executeBehaviorNode(
+            nodeType: "Alexa.TextCommand",
+            skillId: "amzn1.ask.1p.tellalexa",
+            operationPayload: textPayload,
+            encodePayloadAsString: false
+        )
+        if textCommandNode.succeeded {
+            return
+        }
+
         _ = try await executeBehaviorNode(
             nodeType: "Alexa.VoiceCommand",
-            operationPayload: voicePayload,
+            operationPayload: textPayload,
             encodePayloadAsString: false
         )
     }
@@ -301,7 +312,7 @@ final class AlexaAPIClient: ObservableObject {
             lastBodySnippet = primaryResult.responseSnippet
         }
 
-        // 2. Fallback: Alexa.VoiceCommand ("play <phrase> on <Provider>")
+        // 2. Fallback A: Alexa.TextCommand ("play <phrase> on <Provider>" via skillId amzn1.ask.1p.tellalexa — proven in alexapy / alexa_media_player)
         let voiceCommandText: String
         if targetDevice.isSpeakerGroup {
             voiceCommandText = "play \(primaryPhrase) \(providerPreference.voiceSuffix) on \(targetDevice.accountName)"
@@ -317,6 +328,17 @@ final class AlexaAPIClient: ObservableObject {
             "text": voiceCommandText
         ]
 
+        let textCmdRes = try await executeBehaviorNode(
+            nodeType: "Alexa.TextCommand",
+            skillId: "amzn1.ask.1p.tellalexa",
+            operationPayload: voicePayload,
+            encodePayloadAsString: false
+        )
+        if textCmdRes.succeeded {
+            return
+        }
+
+        // 3. Fallback B: Alexa.VoiceCommand
         let voiceRes = try await executeBehaviorNode(
             nodeType: "Alexa.VoiceCommand",
             operationPayload: voicePayload,
@@ -336,6 +358,7 @@ final class AlexaAPIClient: ObservableObject {
 
     private func executeBehaviorNode(
         nodeType: String,
+        skillId: String? = nil,
         operationPayload: [String: Any],
         encodePayloadAsString: Bool
     ) async throws -> (succeeded: Bool, statusCode: Int, responseSnippet: String) {
@@ -348,13 +371,18 @@ final class AlexaAPIClient: ObservableObject {
             payloadValue = operationPayload
         }
 
+        var startNode: [String: Any] = [
+            "@type": "com.amazon.alexa.behaviors.model.OpaquePayloadOperationNode",
+            "type": nodeType,
+            "operationPayload": payloadValue
+        ]
+        if let skillId {
+            startNode["skillId"] = skillId
+        }
+
         let sequenceDict: [String: Any] = [
             "@type": "com.amazon.alexa.behaviors.model.Sequence",
-            "startNode": [
-                "@type": "com.amazon.alexa.behaviors.model.OpaquePayloadOperationNode",
-                "type": nodeType,
-                "operationPayload": payloadValue
-            ]
+            "startNode": startNode
         ]
 
         guard let sequenceData = try? JSONSerialization.data(withJSONObject: sequenceDict),

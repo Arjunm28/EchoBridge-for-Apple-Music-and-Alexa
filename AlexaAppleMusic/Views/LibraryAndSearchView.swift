@@ -948,5 +948,24 @@ struct MediaItemRow: View {
             .contentShape(Rectangle())
         }
         .buttonStyle(.plain)
+        .contextMenu {
+            Button {
+                Task { await coordinator.play(item, inQueue: queue) }
+            } label: {
+                Label("Play Now on \(coordinator.selectedTarget.displayName)", systemImage: "play.fill")
+            }
+
+            Button {
+                coordinator.playNext(item)
+            } label: {
+                Label("Play Next", systemImage: "text.insert")
+            }
+
+            Button {
+                coordinator.addToQueue(item)
+            } label: {
+                Label("Add to Queue", systemImage: "text.append")
+            }
+        }
     }
 }

@@ -87,6 +87,29 @@ Instead of trying to force raw AirPlay audio over a local network skill (which b
 
 ---
 
+## 🔍 How This Compares to Music Assistant & Other Open-Source Projects
+
+We studied existing open-source projects in this space to adopt their best architectural ideas while solving the mobile / zero-server gap:
+
+| Project | Architecture | Apple Music + Echo Multi-Room (`WHA`) | Sonos + Echo Multi-Room Sync | Server Required? |
+| :--- | :--- | :--- | :--- | :--- |
+| **Music Assistant** | Python Server + Docker / Home Assistant | Requires custom Alexa Skill webhook; Amazon blocks custom skills from `WHA` Multi-Room groups | Universal Groups (server-side stream pacing; Alexa + Sonos phase sync unsupported) | Yes (24/7 Docker / Pi / NAS) |
+| **`alexa_media_player` (`alexapy`)** | Home Assistant HACS Integration | Uses `Alexa.TextCommand` (`amzn1.ask.1p.tellalexa`) & `PlaySearchPhrase`; no mobile Apple Music browser | Manual YAML scripts only; no delay compensation | Yes (Home Assistant server) |
+| **`shairport-sync` / `OwnTone`** | Linux AirPlay Receiver | Requires physical AUX/Bluetooth into a single Echo; no cloud Multi-Room groups | AirPlay 2 only (excludes Echo devices) | Yes (Linux / Raspberry Pi) |
+| **Alexa Apple Music Connect (This Project)** | **100% Native iOS App (SwiftUI)** | **Native Cloud `PlaySearchPhrase` + `Alexa.TextCommand` (`tellalexa`) on any Echo or `WHA` Group** | **Linked Companion Groups + Configurable `+1.8s` Sonos Head-Start + AirPlay 2 Beat Nudge** | **No — 100% On-Device** |
+
+### Architectural Improvements Adopted from Music Assistant & `alexapy`
+1. **First-Class Controller Queue ("Player Queue" Pattern from Music Assistant)**:
+   - Instead of relying on Alexa's opaque internal queue, [`PlaybackCoordinator`](AlexaAppleMusic/Services/PlaybackCoordinator.swift) owns the queue on-device—supporting **Play Next**, **Add to Queue**, **Queue Transfer** across speakers/groups, **Auto-Advance**, and a **Universal Group Sleep Timer** (`15m` / `30m` / `45m` / `60m`).
+2. **`Alexa.TextCommand` (`skillId: amzn1.ask.1p.tellalexa`) Fallback (from `alexapy` / `alexa-remote2`)**:
+   - In [`AlexaAPIClient`](AlexaAppleMusic/Services/AlexaAPIClient.swift), if `Alexa.Music.PlaySearchPhrase` validation fails for a regional or soundtrack track, the client automatically falls back to `Alexa.TextCommand` (`amzn1.ask.1p.tellalexa`—the internal API backing "Type with Alexa") to reliably start Multi-Room group playback.
+3. **Pre-Flight `WHA` Idle Lock Release (from `alexa_media_player`)**:
+   - Automatically pauses the previous target before switching between an individual Echo speaker and a Multi-Room (`WHA`) group so the member speaker releases its audio lock cleanly.
+4. **iOS Lock Screen, Control Center & Dynamic Island (`MPNowPlayingInfoCenter` + `MPRemoteCommandCenter`)**:
+   - Exposes the active Echo / Multi-Room stream to the iPhone Lock Screen, Control Center, Dynamic Island, and Apple Watch so hardware media controls work seamlessly.
+
+---
+
 ## ✨ Current Features
 
 - **Spotify Connect-Style Speaker Picker (`SpeakerPickerSheet`)**:
